@@ -20,6 +20,7 @@ string configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
 try
 {
     CoreLogChecks.Run(Check);
+    ShortcutChecks.Run(root, Check);
     host = StartHost();
     using var client = await Connect();
     var cmd = await client.CreateAsync(Request("cmd", "echo CMD_OK & exit /b 3"));

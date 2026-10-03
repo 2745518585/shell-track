@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/ShellTrack.Client/ShellTrack.Client.csproj" />
     <ProjectReference Include="../../src/ShellTrack.Core/ShellTrack.Core.csproj" />
+    <ProjectReference Include="../../src/ShellTrack.Windows/ShellTrack.Windows.csproj" />
     <ProjectReference Include="../../src/ShellTrack.Host/ShellTrack.Host.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../src/ShellTrack.Cli/ShellTrack.Cli.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../src/ShellTrack.Pwsh/ShellTrack.Pwsh.csproj" ReferenceOutputAssembly="false" />

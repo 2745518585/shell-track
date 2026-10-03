@@ -42,6 +42,8 @@ public partial class App : Application
             else if (arguments[i] is "--notify" or "-n" && i + 1 < arguments.Length) notifyId = arguments[++i];
             else if (arguments[i] is "--task" or "-t" && i + 1 < arguments.Length) showId = arguments[++i];
         }
+        Exception? registrationError = null;
+        bool shortcutChanged = false;
         try
         {
             AppNotificationManager.Default.NotificationInvoked += (_, invocation) =>
@@ -55,14 +57,16 @@ public partial class App : Application
             string icon = Path.Combine(AppContext.BaseDirectory, "assets", "shelltrack.png");
             if (!HasPackageIdentity && File.Exists(icon)) AppNotificationManager.Default.Register("Shell Track", new Uri(icon));
             else AppNotificationManager.Default.Register();
-            if (!HasPackageIdentity) UpdateActivationPath();
+            if (!HasPackageIdentity) shortcutChanged = UpdateActivationPath();
         }
-        catch (Exception ex) { WriteDiagnostic(root, "通知注册失败：" + ex); }
+        catch (Exception ex) { registrationError = ex; WriteDiagnostic(root, "通知注册失败：" + ex); }
         if (notifyId is not null)
         {
             try
             {
+                if (registrationError is not null) throw new InvalidOperationException("通知注册失败。", registrationError);
                 if (!AppNotificationManager.IsSupported()) throw new InvalidOperationException("当前进程不支持 Windows 通知；请以普通用户运行。");
+                if (shortcutChanged) await Task.Delay(500);
                 using var client = await ShellTrackClient.ConnectAsync(root, autoStart: false, readOnly: true);
                 var task = await client.GetAsync(notifyId);
                 var setting = AppNotificationManager.Default.Setting;
@@ -100,6 +104,7 @@ public partial class App : Application
         instance = AppInstance.FindOrRegisterForKey("ShellTrack.UI." + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(instanceRoot))));
         if (!instance.IsCurrent)
         {
+            AllowSetForegroundWindow(instance.ProcessId);
             await instance.RedirectActivationToAsync(activation);
             Exit(); return;
         }
@@ -120,8 +125,7 @@ public partial class App : Application
     private void Show(string? root, string? id)
     {
         window ??= new MainWindow(root, id);
-        window.AppWindow.Show();
-        window.Activate();
+        window.BringToFront();
         if (id is not null) window.SelectTask(id);
     }
     private static void WriteDiagnostic(string? root, string message)
@@ -140,18 +144,25 @@ public partial class App : Application
         if (root is not null) { start.ArgumentList.Add("--data-dir"); start.ArgumentList.Add(root); }
         if (id is not null) { start.ArgumentList.Add("--task"); start.ArgumentList.Add(id); }
         using var child = Process.Start(start);
+        if (child is not null) AllowSetForegroundWindow((uint)child.Id);
     }
     private static bool SameRoot(string? first, string? second) => string.Equals(
         Path.GetFullPath(first ?? ShellTrackClient.DefaultDataRoot).TrimEnd(Path.DirectorySeparatorChar),
         Path.GetFullPath(second ?? ShellTrackClient.DefaultDataRoot).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
-    private static void UpdateActivationPath()
+    private static bool UpdateActivationPath()
     {
         // The SDK reuses a COM activator for a fixed AUMID. Keep its launch path
         // current when a portable build moves, without clearing notification history.
         using var identity = Registry.CurrentUser.OpenSubKey(@"Software\Classes\AppUserModelId\ShellTrack.Desktop");
-        if (identity?.GetValue("CustomActivator") is not string value || !Guid.TryParse(value, out var activator)) return;
+        if (identity?.GetValue("CustomActivator") is not string value || !Guid.TryParse(value, out var activator))
+            throw new InvalidOperationException("Windows 通知激活器注册缺失。");
         using var server = Registry.CurrentUser.OpenSubKey(@"Software\Classes\CLSID\" + activator.ToString("B") + @"\LocalServer32", writable: true);
         server?.SetValue("", "\"" + Environment.ProcessPath + "\" ----AppNotificationActivated:", RegistryValueKind.ExpandString);
+        // The notification database may accept a toast even when Shell cannot
+        // resolve the application. Register its Start menu identity as well.
+        return ShellTrack.Windows.ApplicationShortcut.Ensure(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Shell Track", "Shell Track.lnk"),
+            Environment.ProcessPath!, Path.Combine(AppContext.BaseDirectory, "assets", "shelltrack.ico"), "ShellTrack.Desktop", activator);
     }
     private static void WriteNotification(string? root, string id, NotificationResult result)
     {
@@ -166,6 +177,7 @@ public partial class App : Application
         1 => "notPresent", 2 => "busy", 3 => "fullScreenGame", 4 => "presentation", 5 => "acceptsNotifications", 6 => "quietTime", 7 => "app", _ => "unknown"
     };
     [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);
+    [DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(uint processId);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern int GetCurrentPackageFullName(ref uint length, IntPtr name);
 }

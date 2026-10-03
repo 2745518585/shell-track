@@ -15,6 +15,32 @@ internal sealed class NotificationDispatcher(string dataRoot, ILogger logger)
             var start = new ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true };
             start.ArgumentList.Add("--data-dir"); start.ArgumentList.Add(dataRoot);
             start.ArgumentList.Add("--notify"); start.ArgumentList.Add(session.Id);
+            string audit = Path.Combine(dataRoot, "notifications", session.Id + ".json");
+            // A parent MSIX application can virtualize HKCU even for an unpackaged
+            // child. Explorer launches the helper outside that inherited context,
+            // so the notification's COM registration is visible to Windows Shell.
+            if (ShellTrack.Windows.PackageIdentity.FamilyName is null)
+            {
+                try
+                {
+                    // LocalAppData can also be virtualized by the parent package.
+                    // Read the same Host credentials through their physical backing directory.
+                    string physicalRoot = Path.GetDirectoryName(ShellTrack.Windows.PhysicalPath.ResolveFile(Path.Combine(dataRoot, "connection.json")))!;
+                    string desktopAudit = Path.Combine(physicalRoot, "notifications", session.Id + ".json");
+                    if (ShellTrack.Windows.DesktopProcessLauncher.TryLaunch(path, ["--data-dir", physicalRoot, "--notify", session.Id]))
+                    {
+                        var expires = DateTime.UtcNow.AddSeconds(20);
+                        while (DateTime.UtcNow < expires)
+                        {
+                            if (File.Exists(desktopAudit)) return JsonSerializer.Deserialize<NotificationResult>(await File.ReadAllTextAsync(desktopAudit), Protocol.Json)
+                                ?? new("failed", "通知诊断记录为空。");
+                            await Task.Delay(100);
+                        }
+                        return new("failed", "桌面通知程序未在时限内生成诊断，查看 desktop-errors.log。");
+                    }
+                }
+                catch (Exception ex) { logger.LogDebug(ex, "无法通过 Windows 桌面启动通知程序，使用直接启动。"); }
+            }
             using var child = Process.Start(start)!;
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             try { await child.WaitForExitAsync(timeout.Token); }
@@ -23,10 +49,9 @@ internal sealed class NotificationDispatcher(string dataRoot, ILogger logger)
                 // Do not leave failed notification helper processes behind.
                 child.Kill(); return new("failed", "通知程序超时，查看 desktop-errors.log。");
             }
-            string audit = Path.Combine(dataRoot, "notifications", session.Id + ".json");
             if (File.Exists(audit)) return JsonSerializer.Deserialize<NotificationResult>(await File.ReadAllTextAsync(audit), Protocol.Json)
                 ?? new("failed", "通知诊断记录为空。");
-            return child.ExitCode == 0 ? new("submitted", "Windows 已接受通知；弹窗显示由系统决定。") : new("failed", "通知发送失败，查看 desktop-errors.log。");
+            return new("failed", child.ExitCode == 0 ? "通知程序未生成发送诊断，无法确认 Windows 接受了通知。" : "通知发送失败，查看 desktop-errors.log。");
         }
         catch (Exception ex) { logger.LogWarning(ex, "通知发送失败 {Id}", session.Id); return new("failed", ex.Message); }
     }

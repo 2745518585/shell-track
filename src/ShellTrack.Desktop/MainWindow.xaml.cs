@@ -80,7 +80,7 @@ public partial class MainWindow : Window
         try
         {
             client = await ShellTrackClient.ConnectAsync(dataRoot, cancellation: closing.Token);
-            tray = new TrayIcon(WinRT.Interop.WindowNative.GetWindowHandle(this), () => { AppWindow.Show(); Activate(); }, Exit);
+            tray = new TrayIcon(WinRT.Interop.WindowNative.GetWindowHandle(this), BringToFront, Exit);
             ConnectionStatus.Text = "后台已连接 · 关闭窗口后留在托盘 · 输出只读";
             await Refresh(); timer.Start();
         }
@@ -271,6 +271,17 @@ public partial class MainWindow : Window
     }
     private void Exit_Click(object sender, RoutedEventArgs e) => Exit();
     private void Exit() { exit = true; Close(); Application.Current.Exit(); }
+    public void BringToFront()
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        AppWindow.Show();
+        if (IsIconic(handle)) ShowWindow(handle, 9); // SW_RESTORE
+        Activate();
+        SetForegroundWindow(handle);
+    }
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
     private void DetailsToggle_Click(object sender, RoutedEventArgs e) { ApplyLayout(); SavePreferences(); }
     private void FollowToggle_Click(object sender, RoutedEventArgs e)
     {
