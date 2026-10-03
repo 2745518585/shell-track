@@ -1,5 +1,5 @@
 #Requires -Version 7.0
-param([switch]$CoreOnly, [string]$OutputDirectory)
+param([switch]$CoreOnly, [string]$OutputDirectory, [switch]$SelfContained)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 # Every run creates a fresh directory, so stale runtime files cannot contaminate the bundle.
@@ -13,16 +13,17 @@ New-Item -ItemType Directory -Path $bundleRoot | Out-Null
 Push-Location $repoRoot
 try {
     & (Join-Path $PSScriptRoot 'local-environment.ps1') {
-        dotnet publish src/ShellTrack.Host --configuration Release --runtime win-x64 --self-contained false --output $bundleRoot --nologo
+        $runtimeMode = if ($SelfContained) { 'true' } else { 'false' }
+        dotnet publish src/ShellTrack.Host --configuration Release --runtime win-x64 --self-contained $runtimeMode --output $bundleRoot --nologo
         if ($LASTEXITCODE -ne 0) { throw 'Host publish failed.' }
-        dotnet publish src/ShellTrack.Cli --configuration Release --runtime win-x64 --self-contained false --output $bundleRoot --nologo
+        dotnet publish src/ShellTrack.Cli --configuration Release --runtime win-x64 --self-contained $runtimeMode --output $bundleRoot --nologo
         if ($LASTEXITCODE -ne 0) { throw 'CLI publish failed.' }
         foreach ($wrapper in @('ShellTrack.Pwsh', 'ShellTrack.PowerShell', 'ShellTrack.Cmd')) {
-            dotnet publish (Join-Path 'src' $wrapper) --configuration Release --runtime win-x64 --self-contained false --output $bundleRoot --nologo
+            dotnet publish (Join-Path 'src' $wrapper) --configuration Release --runtime win-x64 --self-contained $runtimeMode --output $bundleRoot --nologo
             if ($LASTEXITCODE -ne 0) { throw "$wrapper publish failed." }
         }
         if (-not $CoreOnly) {
-            dotnet publish src/ShellTrack.Desktop --configuration Release --runtime win-x64 --self-contained false --output (Join-Path $bundleRoot 'desktop') --nologo
+            dotnet publish src/ShellTrack.Desktop --configuration Release --runtime win-x64 --self-contained $runtimeMode --output (Join-Path $bundleRoot 'desktop') --nologo
             if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
             foreach ($required in @('App.xbf', 'MainWindow.xbf', 'ShellTrack.Desktop.pri', 'assets/shelltrack.ico', 'assets/shelltrack.png')) {
                 if (-not (Test-Path -LiteralPath (Join-Path $bundleRoot ('desktop/' + $required)))) { throw "Desktop publish resource missing: $required" }
@@ -32,6 +33,9 @@ try {
         $documentationRoot = Join-Path $bundleRoot 'docs'
         New-Item -ItemType Directory -Path $documentationRoot | Out-Null
         Get-ChildItem -LiteralPath docs -Filter '*.md' -File | Copy-Item -Destination $documentationRoot
+        $installationDocs = Join-Path $bundleRoot 'packaging'
+        New-Item -ItemType Directory -Path $installationDocs | Out-Null
+        Copy-Item -LiteralPath packaging/INSTALL.md -Destination $installationDocs
         $licenseRoot = Join-Path $bundleRoot 'licenses'
         New-Item -ItemType Directory -Force -Path $licenseRoot | Out-Null
         foreach ($assets in @('src/ShellTrack.Host/obj/project.assets.json', 'src/ShellTrack.Cli/obj/project.assets.json', 'src/ShellTrack.Desktop/obj/project.assets.json')) {

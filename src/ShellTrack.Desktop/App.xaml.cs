@@ -17,13 +17,17 @@ namespace ShellTrack.Desktop;
 
 public partial class App : Application
 {
+    private static bool HasPackageIdentity
+    {
+        get { uint length = 0; return GetCurrentPackageFullName(ref length, IntPtr.Zero) != 15700; }
+    }
     private MainWindow? window;
     private DispatcherQueue? dispatcher;
     private AppInstance? instance;
     public App()
     {
         // Keep taskbar and notification identity stable across build/publish paths.
-        Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID("ShellTrack.Desktop"));
+        if (!HasPackageIdentity) Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID("ShellTrack.Desktop"));
         InitializeComponent();
     }
 
@@ -49,9 +53,9 @@ public partial class App : Application
                     else if (window is not null) Show(notificationRoot, taskId);
                 });
             string icon = Path.Combine(AppContext.BaseDirectory, "assets", "shelltrack.png");
-            if (File.Exists(icon)) AppNotificationManager.Default.Register("Shell Track", new Uri(icon));
+            if (!HasPackageIdentity && File.Exists(icon)) AppNotificationManager.Default.Register("Shell Track", new Uri(icon));
             else AppNotificationManager.Default.Register();
-            UpdateActivationPath();
+            if (!HasPackageIdentity) UpdateActivationPath();
         }
         catch (Exception ex) { WriteDiagnostic(root, "通知注册失败：" + ex); }
         if (notifyId is not null)
@@ -104,7 +108,7 @@ public partial class App : Application
             string? task = null;
             if (incoming.Kind == ExtendedActivationKind.AppNotification && incoming.Data is AppNotificationActivatedEventArgs notification)
                 notification.Arguments.TryGetValue("taskId", out task);
-            else if (incoming.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch)
+            else if (incoming.Data is global::Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch)
             {
                 var match = Regex.Match(launch.Arguments, @"--task\s+([a-fA-F0-9]{32})");
                 if (match.Success) task = match.Groups[1].Value;
@@ -132,7 +136,7 @@ public partial class App : Application
     }
     private static void LaunchViewer(string? root, string? id)
     {
-        var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+        var start = new ProcessStartInfo(ShellTrack.Windows.PackageIdentity.ViewerExecutable ?? Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
         if (root is not null) { start.ArgumentList.Add("--data-dir"); start.ArgumentList.Add(root); }
         if (id is not null) { start.ArgumentList.Add("--task"); start.ArgumentList.Add(id); }
         using var child = Process.Start(start);
@@ -163,4 +167,5 @@ public partial class App : Application
     };
     [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern int GetCurrentPackageFullName(ref uint length, IntPtr name);
 }

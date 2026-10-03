@@ -32,6 +32,7 @@ internal sealed class NotificationDispatcher(string dataRoot, ILogger logger)
     }
     private static string? FindDesktop()
     {
+        if (ShellTrack.Windows.PackageIdentity.ViewerExecutable is string packaged) return packaged;
         string name = "ShellTrack.Desktop.exe";
         string adjacent = Path.Combine(AppContext.BaseDirectory, "desktop", name);
         if (File.Exists(adjacent)) return adjacent;

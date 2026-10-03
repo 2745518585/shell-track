@@ -20,7 +20,7 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: pwsh
@@ -51,15 +51,29 @@ jobs:
             work/tests-*/sessions/*/output.bin
           if-no-files-found: ignore
           retention-days: 7
-      - name: Publish framework-dependent x64 bundle
-        run: ./scripts/publish.ps1 -OutputDirectory artifacts/ci-win-x64
+      - name: Publish self-contained x64 bundle
+        run: ./scripts/publish.ps1 -SelfContained -OutputDirectory artifacts/ci-win-x64
       - name: Verify published CLI and WinUI resources
         run: ./scripts/verify-bundle.ps1 -BundleDirectory artifacts/ci-win-x64
+      - name: Prepare Inno Setup compiler
+        run: ./scripts/install-packaging-tools.ps1
+      - name: Build signed EXE and MSIX installers
+        run: ./scripts/build-installers.ps1 -BundleDirectory artifacts/ci-win-x64 -OutputDirectory artifacts/ci-installers
+      - name: Verify signatures and EXE installation and uninstall
+        run: ./scripts/verify-installers.ps1 -InstallerDirectory artifacts/ci-installers
       - name: Upload x64 bundle
         if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
         uses: actions/upload-artifact@v4
         with:
           name: shelltrack-win-x64
           path: artifacts/ci-win-x64/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload installers and public certificate
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: shelltrack-installers
+          path: artifacts/ci-installers/
           if-no-files-found: error
           retention-days: 14

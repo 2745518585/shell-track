@@ -18,6 +18,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.260921001" />
     <ProjectReference Include="../ShellTrack.Client/ShellTrack.Client.csproj" />
     <ProjectReference Include="../ShellTrack.Core/ShellTrack.Core.csproj" />
+    <ProjectReference Include="../ShellTrack.Windows/ShellTrack.Windows.csproj" />
   </ItemGroup>
   <Target Name="PublishCompiledXamlResources" AfterTargets="ComputeFilesToPublish">
     <!-- Component WinUI references generate these files for build output but do

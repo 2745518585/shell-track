@@ -16,6 +16,7 @@ Shell Track 使用 ConPTY 代理终端。CLI 负责输入输出转发，后台�
 - 受当前用户文件权限保护的本地 API；查询、管理与终端输入使用不同能力的凭据。查看器不启用终端输入能力。
 - 输出记录、7 天历史保留、存储上限和后台异常退出后的记录恢复。
 - Windows 集成测试及 GitHub Actions 构建检查。
+- 自包含 EXE 与 MSIX 安装包，开始菜单入口、可选用户 PATH、MSIX 执行别名和保留任务数据的卸载。
 
 ## 快速开始
 
@@ -121,11 +122,30 @@ pwsh -NoProfile -File scripts/publish.ps1
 
 发布产物位于 `artifacts/shelltrack-win-x64-<时间>/`。运行入口为根目录的 `shelltrack.exe`，桌面文件位于 `desktop/`。请整体保留该目录结构；`shelltrack ui` 会找到配套窗口，窗口会找到根目录的后台。
 
-发布采用 framework-dependent .NET，目标机器需要 .NET 10 Runtime 和 ASP.NET Core 10 Runtime；.NET 10 SDK 已包含这些运行时。桌面目录包含 Windows App SDK 的必要运行组件，无需另外安装 Windows App SDK。当前没有安装器、自动更新或自动设置 PATH。
+普通 `publish.ps1` 默认采用 framework-dependent .NET，目标机器需要 .NET 10 Runtime 和 ASP.NET Core 10 Runtime；.NET 10 SDK 已包含这些运行时。添加 `-SelfContained` 会将运行时一起发布。桌面目录包含 Windows App SDK 的必要运行组件，无需另外安装 Windows App SDK。
+
+## EXE 与 MSIX 安装包
+
+```powershell
+# 首次准备 Inno Setup 编译器（Windows SDK 需预先安装）
+pwsh -NoProfile -File scripts/install-packaging-tools.ps1
+
+# 自动发布自包含目录，构建并签名两种安装包
+pwsh -NoProfile -File scripts/build-installers.ps1
+
+# 验证签名和文件摘要，实际测试 EXE 安装、执行、PATH 与卸载
+pwsh -NoProfile -File scripts/verify-installers.ps1 -InstallerDirectory artifacts/installers-<时间>
+```
+
+安装包位于 `artifacts/installers-<时间>/`。EXE 默认安装到 `%LOCALAPPDATA%\Programs\ShellTrack`，只面向当前用户，可以选择加入用户 PATH；MSIX 使用 Windows 管理的安装位置与执行别名。两种格式都包含运行时，无需另装 .NET；`pwsh` 本身仍需单独安装。
+
+默认使用开发自签名证书，私钥留在当前用户证书库，输出目录仅提供公开的 `ShellTrack.cer`。MSIX 首次安装需要使用者信任该证书；正式签名可以传入 `-CertificateThumbprint <指纹>` 使用 `CurrentUser\My` 中已有的代码签名证书，按需指定 `-TimestampUrl <时间戳服务>`。证书不会自动加入受信任证书库，也不会导出私钥。
+
+开发模式已经开启时，可为验证脚本添加 `-TestMsixLayout`，测试 MSIX 内容的开发注册、命令别名、窗口和注销。它不替代实际签名包的证书信任和安装验收。详细安装、更新、卸载与信任流程见 [安装说明](packaging/INSTALL.md)；目前没有自动更新。
 
 构建脚本把 NuGet 缓存与临时目录放在仓库 `work/` 中，并在结束后恢复当前进程的原环境变量，不修改全局配置。发布脚本会复制本项目许可证、第三方说明与依赖包的许可文件。
 
-GitHub Actions 在 Windows runner 上构建核心、运行集成测试并编译 WinUI，也会验证发布包的 CLI、后台和窗口资源；手动运行工作流时可选上传 x64 发布附件。通知实际显示、托盘操作和 DPI 清晰度需要交互式 Windows 桌面验收，不能由无交互的 CI 证明。
+GitHub Actions 在 Windows runner 上构建核心、运行集成测试并编译 WinUI，也会构建两种安装包，验证签名、MSIX 内容和 EXE 安装/卸载；手动运行工作流时可选上传发布目录与安装包。通知实际显示、托盘操作和 DPI 清晰度需要交互式 Windows 桌面验收，不能由无交互的 CI 证明。
 
 ## 记录与接口
 
@@ -166,6 +186,7 @@ src/
   ShellTrack.Desktop/            原生只读查看器、托盘和通知辅助入口
 tests/                          核心日志与 Windows 进程集成检查
 scripts/                        构建、测试、发布
+packaging/                      MSIX 清单、Inno Setup 脚本与安装说明
 assets/                         原创图标与可复现生成脚本
 docs/                           架构、协议和路线图
 ```

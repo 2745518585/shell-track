@@ -65,7 +65,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         double scale = GetDpiForWindow(handle) / 96d;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32((int)Math.Round(1280 * scale), (int)Math.Round(800 * scale)));
+        AppWindow.Resize(new global::Windows.Graphics.SizeInt32((int)Math.Round(1280 * scale), (int)Math.Round(800 * scale)));
         string icon = Path.Combine(AppContext.BaseDirectory, "assets", "shelltrack.ico");
         if (File.Exists(icon)) AppWindow.SetIcon(icon);
         TaskList.ItemsSource = rows; LogList.ItemsSource = logRows;
@@ -256,7 +256,7 @@ public partial class MainWindow : Window
     }
     private void LogList_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != VirtualKey.C || !Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
+        if (e.Key != VirtualKey.C || !Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
         // TextBlock handles copying a text selection; otherwise copy the selected logical line.
         if (e.OriginalSource is TextBlock) return;
         if (LogList.SelectedItem is LogRow row)
@@ -323,6 +323,7 @@ public partial class MainWindow : Window
             perMonitorV2 = AreDpiAwarenessContextsEqual(GetWindowDpiAwarenessContext(hwnd), new IntPtr(-4)),
             width = RootGrid.ActualWidth, height = RootGrid.ActualHeight, readOnly = true, numberedLogs = true,
             detailsVisible = DetailsPanel.Visibility == Visibility.Visible,
+            packageFamily = ShellTrack.Windows.PackageIdentity.FamilyName,
             physicalWidth = AppWindow.Size.Width, physicalHeight = AppWindow.Size.Height
         };
         Directory.CreateDirectory(dataRoot ?? ShellTrackClient.DefaultDataRoot);

@@ -33,7 +33,9 @@ Windows App SDK 的 NOTICE 包含它内部使用的开源组件声明。这些�
 
 `scripts/publish.ps1` 将实际依赖包根目录中的许可证、NOTICE 和 `.nuspec` 复制到发布产物的 `licenses/<包名>-<版本>/`，并复制本文件与根目录 LICENSE。请整体保留这些文件，不把第三方二进制文件描述为本项目 MIT 代码。
 
-当前 .NET 和 ASP.NET Core 采用 framework-dependent 部署，运行时由用户另外安装，不在本项目发布目录复制完整运行时。它们及 Windows 系统组件各自的许可和第三方声明由对应发行版本提供。项目未引入 SQLite、xterm.js 或其他终端渲染库。
+默认发布采用 framework-dependent 部署；`-SelfContained` 与安装包构建会包含 .NET/ASP.NET Core 运行时。相应 runtime NuGet 包的许可证、NOTICE 与 `.nuspec` 随发布目录保存；Windows 系统组件遵循自身条款。项目未引入 SQLite、xterm.js 或其他终端渲染库。
+
+EXE 安装器由 Inno Setup 6.7.3 构建。Inno Setup 的安装/卸载引擎遵循其自身许可，不属于本项目 MIT 代码；打包脚本会随安装产物保留编译器的 `license.txt`。工具来源及商业使用说明见 [Inno Setup 官方页面](https://jrsoftware.org/isinfo.php)。MSIX 使用 Windows SDK 的 MakeAppx 与 SignTool 构建。
 
 ## 原创图标
 

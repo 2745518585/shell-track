@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+ xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+ xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+ xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+ xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+ xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+ xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+ xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+ IgnorableNamespaces="uap uap5 desktop desktop4 desktop6 com rescap">
+ <Identity Name="ShellTrack.Desktop" Publisher="CN=ShellTrack Development" Version="0.3.0.0" ProcessorArchitecture="x64" />
+ <Properties>
+  <DisplayName>Shell Track</DisplayName><PublisherDisplayName>Shell Track</PublisherDisplayName>
+  <Description>Windows shell tasks and retained terminal logs</Description><Logo>Assets\StoreLogo.png</Logo>
+  <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+ </Properties>
+ <Resources><Resource Language="zh-CN" /><Resource Language="en-US" /></Resources>
+ <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.22621.0" /></Dependencies>
+ <Applications>
+  <Application Id="Desktop" desktop4:SupportsMultipleInstances="true" Executable="desktop\ShellTrack.Desktop.exe" EntryPoint="Windows.FullTrustApplication">
+   <uap:VisualElements DisplayName="Shell Track" Description="Shell tasks and logs" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+   <Extensions>
+    <uap5:Extension Category="windows.appExecutionAlias" Executable="desktop\ShellTrack.Desktop.exe" EntryPoint="Windows.FullTrustApplication"><uap5:AppExecutionAlias desktop4:Subsystem="windows"><uap5:ExecutionAlias Alias="shelltrack-viewer.exe" /></uap5:AppExecutionAlias></uap5:Extension>
+    <desktop:Extension Category="windows.toastNotificationActivation"><desktop:ToastNotificationActivation ToastActivatorCLSID="F472BB45-6018-472C-BE3B-A277CF20F0A3" /></desktop:Extension>
+    <com:Extension Category="windows.comServer"><com:ComServer><com:ExeServer Executable="desktop\ShellTrack.Desktop.exe" DisplayName="Shell Track" Arguments="----AppNotificationActivated:"><com:Class Id="F472BB45-6018-472C-BE3B-A277CF20F0A3" /></com:ExeServer></com:ComServer></com:Extension>
+   </Extensions>
+  </Application>
+  <Application Id="Cli" desktop4:SupportsMultipleInstances="true" desktop4:Subsystem="console" Executable="shelltrack.exe" EntryPoint="Windows.FullTrustApplication">
+   <uap:VisualElements DisplayName="Shell Track CLI" Description="Shell Track command line" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" AppListEntry="none" />
+   <Extensions><uap5:Extension Category="windows.appExecutionAlias" Executable="shelltrack.exe" EntryPoint="Windows.FullTrustApplication"><uap5:AppExecutionAlias desktop4:Subsystem="console"><uap5:ExecutionAlias Alias="shelltrack.exe" /></uap5:AppExecutionAlias></uap5:Extension></Extensions>
+  </Application>
+  <Application Id="Pwsh" desktop4:SupportsMultipleInstances="true" desktop4:Subsystem="console" Executable="shelltrack-pwsh.exe" EntryPoint="Windows.FullTrustApplication">
+   <uap:VisualElements DisplayName="Shell Track PowerShell 7" Description="PowerShell 7 proxy" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" AppListEntry="none" />
+   <Extensions><uap5:Extension Category="windows.appExecutionAlias" Executable="shelltrack-pwsh.exe" EntryPoint="Windows.FullTrustApplication"><uap5:AppExecutionAlias desktop4:Subsystem="console"><uap5:ExecutionAlias Alias="shelltrack-pwsh.exe" /></uap5:AppExecutionAlias></uap5:Extension></Extensions>
+  </Application>
+  <Application Id="PowerShell" desktop4:SupportsMultipleInstances="true" desktop4:Subsystem="console" Executable="shelltrack-powershell.exe" EntryPoint="Windows.FullTrustApplication">
+   <uap:VisualElements DisplayName="Shell Track Windows PowerShell" Description="Windows PowerShell proxy" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" AppListEntry="none" />
+   <Extensions><uap5:Extension Category="windows.appExecutionAlias" Executable="shelltrack-powershell.exe" EntryPoint="Windows.FullTrustApplication"><uap5:AppExecutionAlias desktop4:Subsystem="console"><uap5:ExecutionAlias Alias="shelltrack-powershell.exe" /></uap5:AppExecutionAlias></uap5:Extension></Extensions>
+  </Application>
+  <Application Id="Cmd" desktop4:SupportsMultipleInstances="true" desktop4:Subsystem="console" Executable="shelltrack-cmd.exe" EntryPoint="Windows.FullTrustApplication">
+   <uap:VisualElements DisplayName="Shell Track CMD" Description="CMD proxy" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" AppListEntry="none" />
+   <Extensions><uap5:Extension Category="windows.appExecutionAlias" Executable="shelltrack-cmd.exe" EntryPoint="Windows.FullTrustApplication"><uap5:AppExecutionAlias desktop4:Subsystem="console"><uap5:ExecutionAlias Alias="shelltrack-cmd.exe" /></uap5:AppExecutionAlias></uap5:Extension></Extensions>
+  </Application>
+ </Applications>
+ <Capabilities><rescap:Capability Name="runFullTrust" /><rescap:Capability Name="unvirtualizedResources" /></Capabilities>
+</Package>

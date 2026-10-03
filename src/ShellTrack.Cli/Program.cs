@@ -101,7 +101,7 @@ static async Task<int> Run(string[] arguments)
             return 0;
         case "ui":
             string desktop = ShellTrackClient.FindApplication("ShellTrack.Desktop") ?? throw new FileNotFoundException("未找到桌面程序，请先构建 ShellTrack.Desktop.slnx。");
-            var start = new ProcessStartInfo(Path.ChangeExtension(desktop, ".exe")) { UseShellExecute = false, CreateNoWindow = true };
+            var start = new ProcessStartInfo(PackageIdentity.ViewerExecutable ?? Path.ChangeExtension(desktop, ".exe")) { UseShellExecute = false, CreateNoWindow = true };
             start.ArgumentList.Add("--data-dir"); start.ArgumentList.Add(client.DataRoot);
             using (Process.Start(start)) { }
             return 0;
