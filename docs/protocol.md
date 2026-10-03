@@ -38,7 +38,7 @@ Invoke-RestMethod "$baseUri/v1/tasks?skip=0&take=100" -Headers $readHeaders
 | `GET /v1/tasks/{id}` | 返回当前任务信息 | 查询 |
 | `GET /v1/tasks/{id}/output?offset=0&count=65536` | 读取有界输出页 | 查询 |
 | `POST /v1/tasks/{id}/terminate` | 请求终止，已结束任务不重复终止 | manage |
-| `POST /v1/tasks/{id}/notification` | 修改运行任务的完成通知开关 | manage |
+| `POST /v1/tasks/{id}/notification` | 修改运行任务的结束条件与输出正则 | manage |
 | `DELETE /v1/tasks/{id}` | 删除已结束任务，成功返回 204 | manage |
 | `POST /v1/shutdown` | 返回 202，再关闭后台及其运行任务 | manage |
 
@@ -55,7 +55,8 @@ Invoke-RestMethod "$baseUri/v1/tasks?skip=0&take=100" -Headers $readHeaders
   "columns": 120,
   "rows": 30,
   "disconnectPolicy": "Continue",
-  "notify": false
+  "notify": true,
+  "notifyPatterns": ["(?i)error|exception", "READY"]
 }
 ```
 
@@ -70,10 +71,12 @@ Invoke-RestMethod "$baseUri/v1/tasks?skip=0&take=100" -Headers $readHeaders
 通知设置请求为：
 
 ```json
-{ "enabled": true }
+{ "enabled": true, "patterns": ["(?i)error|exception", "READY"] }
 ```
 
-`enabled` 必须提供。返回更新后的 `SessionInfo`，其 `request.notify` 表示当前开关。只允许在任务结束前修改，已结束任务返回 409。此操作设置结束时的发送意图，不会补发已经结束任务的通知。
+`enabled` 必须提供，控制结束条件；`patterns` 可省略或为 null，此时保留已有正则，空数组则清空。创建请求的 `notifyPatterns` 默认是空数组，不能为 null。最多 16 个正则，每个最多 2048 字符，空值和无效正则返回 400。返回更新后的 `SessionInfo`。只允许在任务结束前修改，已结束任务返回 409，不补发历史输出。结束条件与多个正则为 OR，每个任务首次命中即触发一次；重复匹配、随后结束或条件修改均不重发。触发后发送失败也不会自动重试。
+
+正则采用 .NET 的 Multiline 与 CultureInvariant 选项，默认区分大小写；`(?i)` 可忽略大小写，`(?s)` 可让点号跨行。输入为去除终端控制序列、处理回车覆盖后的最近文本窗口，最多 65536 字符，支持跨输出片段匹配，不受输出保存配额限制。每个条件一次匹配最多 25ms，超时后停用该条件并记录 `notificationConditionError`，其他条件继续。`GET /v1/health` 的 `supportsNotificationConditions: true` 表示支持此能力；旧后台应升级后再配置。
 
 ## 任务信息
 
@@ -95,10 +98,12 @@ JSON 属性使用 camelCase，枚举使用字符串，时间使用 UTC ISO 8601�
 | `columns`、`rows` | 当前实际 ConPTY 尺寸 |
 | `notificationStatus`、`notificationError` | 通知阶段与诊断说明 |
 | `notification` | 详细 Windows 通知结果，未发送时可为 null |
+| `notificationTrigger` | 首次触发记录：kind 为 completed/outputMatch，at 为时间，pattern/matchedText 为正则与匹配摘要 |
+| `notificationConditionError` | 条件执行诊断，如正则超时；不影响 shell 的退出码 |
 
 状态为 `Starting`、`Running`、`Stopping`、`Exited`、`Failed`、`Interrupted`。非零退出码的正常 shell 结束仍为 `Exited`。
 
-通知结果包括 `status`、`detail`、`windowsId`、`setting`、`systemState`、`inHistory`。`submitted` 表示 Windows API 接受，`inHistory` 表示 API 历史查询结果，均不能证明用户已看到弹窗或通知中心条目。当前通知显示仍有未完成的实际验收问题。
+通知结果包括 `status`、`detail`、`windowsId`、`setting`、`systemState`、`inHistory`。`pending` 在触发前表示等待条件，触发后表示正在发送；`notMatched` 表示任务结束但仅有的输出条件未命中。`submitted` 表示 Windows API 接受，`inHistory` 表示 API 历史查询结果，均不能证明用户已看到弹窗或通知中心条目。桌面通知显示与点击已完成本机用户验收，其他部署方式仍需分别验证。
 
 ## 输出分页与缺口
 

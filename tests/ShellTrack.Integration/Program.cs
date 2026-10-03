@@ -21,6 +21,7 @@ try
 {
     CoreLogChecks.Run(Check);
     ShortcutChecks.Run(root, Check);
+    await NotificationChecks.RunAsync(root, Check, deadline.Token);
     host = StartHost();
     using var client = await Connect();
     var cmd = await client.CreateAsync(Request("cmd", "echo CMD_OK & exit /b 3"));
@@ -93,6 +94,15 @@ try
     Check(retryAfterToggle.Id == running.Id && retryAfterToggle.Request.Notify, "调整通知后重试原创建请求仍幂等且保留当前设置");
     await ExpectStatus(() => client.CreateAsync(runningRequest with { Notify = true }), HttpStatusCode.Conflict, "调整通知后仍拒绝改变原创建参数的重试");
     Check(!(await client.SetNotificationAsync(running.Id, false, deadline.Token)).Request.Notify, "管理客户端可关闭运行任务的完成通知");
+    await ExpectStatus(() => client.CreateAsync(Request("cmd", "exit 0") with { NotifyPatterns = ["["] }), HttpStatusCode.BadRequest, "创建时拒绝无效输出正则");
+    await ExpectStatus(() => client.CreateAsync(Request("cmd", "exit 0") with { NotifyPatterns = null! }), HttpStatusCode.BadRequest, "拒绝 null 正则数组");
+    await ExpectStatus(() => client.CreateAsync(Request("cmd", "exit 0") with { NotifyPatterns = [null!] }), HttpStatusCode.BadRequest, "拒绝 null 正则条件");
+    await ExpectStatus(() => client.CreateAsync(Request("cmd", "exit 0") with { NotifyPatterns = Enumerable.Repeat("x", 17).ToArray() }), HttpStatusCode.BadRequest, "限制输出条件数量");
+    await ExpectStatus(() => client.SetNotificationConditionsAsync(running.Id, new(false, ["["])), HttpStatusCode.BadRequest, "更新时拒绝无效输出正则");
+    var configured = await client.SetNotificationConditionsAsync(running.Id, new(false, ["NEVER_MATCH_TEST", "(?i)ANOTHER_ABSENT"]));
+    Check(configured.Request.NotifyPatterns.Length == 2 && !configured.Request.Notify, "API 保存多个正则条件，可独立关闭结束条件");
+    Check((await client.SetNotificationAsync(running.Id, true)).Request.NotifyPatterns.Length == 2, "API 旧结束开关保留输出条件");
+    await client.SetNotificationConditionsAsync(running.Id, new(false, []));
     await ExpectStatus(() => client.DeleteAsync(running.Id), HttpStatusCode.Conflict, "禁止删除运行任务");
     await client.TerminateAsync(running.Id);
     await Output(client, running.Id);
@@ -194,12 +204,15 @@ try
 
     var aliasHelp = await RunCli("-h");
     Check(aliasHelp.ExitCode == 0 && aliasHelp.Output.Contains("--detach -b") && aliasHelp.Output.Contains("ui|u"), "CLI 帮助包含选项与子命令简写");
-    var aliasCreate = await RunCli("-d", root, "-s", "pwsh", "-c", "Write-Output 'ALIASES_OK'; Start-Sleep -Seconds 60", "-w", root, "-b", "-n", "-k");
+    var aliasCreate = await RunCli("-d", root, "-s", "pwsh", "-c", "Write-Output 'ALIASES_OK'; Start-Sleep -Seconds 60", "-w", root, "-b", "-n", "-nm", "UNMATCHED_ALIAS_ONE", "-nm", "UNMATCHED_ALIAS_TWO", "-k");
     string aliasId = aliasCreate.Output.Trim();
     var aliasInfo = await client.GetAsync(aliasId);
-    Check(aliasCreate.ExitCode == 0 && aliasInfo.Request.Shell == "pwsh" && aliasInfo.Request.WorkingDirectory == root && aliasInfo.Request.Notify && aliasInfo.Request.DisconnectPolicy == DisconnectPolicy.Continue,
+    Check(aliasCreate.ExitCode == 0 && aliasInfo.Request.Shell == "pwsh" && aliasInfo.Request.WorkingDirectory == root && aliasInfo.Request.Notify && aliasInfo.Request.NotifyPatterns.SequenceEqual(["UNMATCHED_ALIAS_ONE", "UNMATCHED_ALIAS_TWO"]) && aliasInfo.Request.DisconnectPolicy == DisconnectPolicy.Continue,
         "短选项指定数据目录、shell、命令、工作目录、后台执行、通知与保留会话");
     await client.SetNotificationAsync(aliasId, false, deadline.Token);
+    var regexCli = await RunCli("-d", root, "-s", "cmd", "-c", "echo REGEX_CLI", "--notify-match", "UNMATCHED_LONG_OPTION", "-b");
+    var regexCliInfo = await client.GetAsync(regexCli.Output.Trim());
+    Check(regexCli.ExitCode == 0 && !regexCliInfo.Request.Notify && regexCliInfo.Request.NotifyPatterns.SequenceEqual(["UNMATCHED_LONG_OPTION"]), "CLI 长选项独立配置正则条件");
     while ((await client.GetAsync(aliasId)).LatestOutputLine?.Contains("ALIASES_OK") != true) await Task.Delay(50, deadline.Token);
     var aliasList = await RunCli("-d", root, "ls", "-j");
     Check(aliasList.ExitCode == 0 && JsonSerializer.Deserialize<SessionInfo[]>(aliasList.Output, Protocol.Json)!.Any(s => s.Id == aliasId), "ls -j 返回结构化任务列表");

@@ -99,7 +99,7 @@ WinUI 3 采用 unpackaged、Windows App SDK 自包含部署。DPI manifest 使�
 
 窗口关闭后隐藏到托盘。双击托盘图标重新打开，托盘菜单与窗口“退出”只关闭查看器。每个数据根目录的普通查看窗口使用单实例激活；通知辅助进程单独运行。详情和跟随输出偏好保存在独立 `desktop-settings.json`，不改变任务元数据。
 
-Host 在完成时查看任务当前通知开关，启动桌面辅助入口读取任务并提交 Windows 通知。通知结果记录 `pending`、`submitted`、`blocked`、`unavailable`、`failed` 或 `interrupted`，以及 Windows ID、应用设置、系统通知状态和历史查询结果。未发送完成的通知在后台恢复时不会自动重发。
+Host 支持结束条件和多个输出正则条件，以 OR 组合。输出流在录制配额之外仍经过有界 UTF-8/终端文本解码与正则匹配，正则超时后停用该条件。首次命中时在任务锁内持久化 `notificationTrigger`，再异步启动桌面辅助入口；重复输出与随后结束不重发同一任务。条件修改仅作用于之后的新输出，结束开关保留已有正则。通知结果记录 `pending`、`notMatched`、`submitted`、`blocked`、`unavailable`、`failed` 或 `interrupted`，以及 Windows ID、应用设置、系统通知状态和历史查询结果。触发记录和条件随历史恢复，未发送完成的通知不会自动重发。
 
 `submitted` 不等于用户看到弹窗。当前环境出现过 API 接受且历史存在、用户仍看不到通知的情况；排查确认调用方继承的 MSIX 注册表虚拟化导致桌面无法读取注册。通过真实桌面环境启动后，通知显示、点击定位与托盘已由用户确认。通知失败不会改变任务的执行结果。
 

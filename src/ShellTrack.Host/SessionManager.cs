@@ -19,6 +19,7 @@ public sealed class SessionManager : IDisposable
     private readonly CancellationTokenSource stopping = new();
     private bool disposed;
     public event Action<SessionInfo>? Completed;
+    public event Action<SessionInfo>? NotificationRequested;
 
     private sealed class Entry(SessionInfo info, string directory, CreateSessionRequest? initialRequest = null)
     {
@@ -27,6 +28,7 @@ public sealed class SessionManager : IDisposable
         public readonly CreateSessionRequest InitialRequest = initialRequest ?? info.Request;
         public readonly string Directory = directory;
         public readonly LatestLinePreview Preview = new();
+        public OutputNotificationMatcher Matcher = new(info.Request.NotifyPatterns);
         public DateTimeOffset LastCheckpoint;
         public ITerminalSession? Terminal;
         public Task? Completion;
@@ -54,8 +56,8 @@ public sealed class SessionManager : IDisposable
                     info = info with
                     {
                         State = SessionState.Interrupted, EndedAt = DateTimeOffset.UtcNow, Error = "后台进程已中断。",
-                        NotificationStatus = info.Request.Notify ? "interrupted" : null,
-                        NotificationError = info.Request.Notify ? "后台已中断，未发送完成通知。" : null
+                        NotificationStatus = HasConditions(info.Request) && info.NotificationTrigger is null ? "interrupted" : info.NotificationStatus,
+                        NotificationError = HasConditions(info.Request) && info.NotificationTrigger is null ? "后台已中断，未触发通知条件。" : info.NotificationError
                     };
                 }
                 // Older histories had no preview. Also recover bytes written since
@@ -106,7 +108,8 @@ public sealed class SessionManager : IDisposable
             var previous = sessions.Values.FirstOrDefault(e => e.InitialRequest.RequestId == request.RequestId);
             if (previous is not null)
             {
-                if (previous.InitialRequest != request) throw new InvalidOperationException("requestId 已被其他参数使用。");
+                if (previous.InitialRequest with { NotifyPatterns = request.NotifyPatterns } != request ||
+                    !previous.InitialRequest.NotifyPatterns.SequenceEqual(request.NotifyPatterns)) throw new InvalidOperationException("requestId 已被其他参数使用。");
                 return Snapshot(previous);
             }
             Cleanup();
@@ -114,7 +117,7 @@ public sealed class SessionManager : IDisposable
             long bytes = sessions.Values.Sum(e => { var snapshot = Snapshot(e); return snapshot.IsFinished ? snapshot.RecordedLength : outputLimit; });
             if (bytes + outputLimit > TotalLimit) throw new InvalidOperationException("历史输出配额不足，请清理已结束记录。");
             string id = Guid.NewGuid().ToString("N");
-            var info = new SessionInfo { Id = id, Request = request, State = SessionState.Starting, StartedAt = DateTimeOffset.UtcNow, Columns = request.Columns, Rows = request.Rows, NotificationStatus = request.Notify ? "pending" : null };
+            var info = new SessionInfo { Id = id, Request = request, State = SessionState.Starting, StartedAt = DateTimeOffset.UtcNow, Columns = request.Columns, Rows = request.Rows, NotificationStatus = HasConditions(request) ? "pending" : null };
             var directory = Path.Combine(root, id);
             Directory.CreateDirectory(directory);
             HostFiles.Write(Path.Combine(directory, "request.json"), request);
@@ -139,6 +142,7 @@ public sealed class SessionManager : IDisposable
                     entry.Info = entry.Info with { State = SessionState.Failed, EndedAt = DateTimeOffset.UtcNow, Error = ex.Message };
                     Persist(entry);
                 }
+                FinishNotifications(entry);
                 Completed?.Invoke(Snapshot(entry));
             }
             return Snapshot(entry);
@@ -161,6 +165,7 @@ public sealed class SessionManager : IDisposable
                 int count;
                 while ((count = terminal.Output.Read(buffer)) > 0)
                 {
+                    SessionInfo? notification = null;
                     lock (entry.Gate)
                     {
                         long offset = entry.Info.OutputLength;
@@ -186,6 +191,16 @@ public sealed class SessionManager : IDisposable
                         }
                         entry.Preview.Append(buffer.AsSpan(0, count));
                         entry.Info = entry.Info with { OutputLength = offset + count, LatestOutputLine = entry.Preview.LastLine };
+                        if (entry.Info.NotificationTrigger is null && entry.Info.Request.NotifyPatterns.Length > 0)
+                        {
+                            var match = entry.Matcher.Append(buffer.AsSpan(0, count));
+                            entry.Info = entry.Info with { NotificationConditionError = entry.Matcher.Error };
+                            if (match is not null)
+                            {
+                                try { notification = ClaimNotification(entry, new("outputMatch", DateTimeOffset.UtcNow, match.Pattern, match.Text)); }
+                                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { logger.LogWarning(ex, "通知触发保存失败 {Id}", entry.Info.Id); }
+                            }
+                        }
                         // Keep crash recovery useful without rewriting metadata for
                         // every output packet. Failure must not stop draining ConPTY.
                         if (DateTimeOffset.UtcNow - entry.LastCheckpoint > TimeSpan.FromSeconds(1))
@@ -198,6 +213,7 @@ public sealed class SessionManager : IDisposable
                             }
                         }
                     }
+                    if (notification is not null) RequestNotification(notification);
                 }
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { outputError ??= ex; }
@@ -223,6 +239,7 @@ public sealed class SessionManager : IDisposable
             }
         }
         finally { terminal.Dispose(); }
+        FinishNotifications(entry);
         try { Completed?.Invoke(Snapshot(entry)); }
         catch (Exception ex) { logger.LogWarning(ex, "任务通知失败"); }
     }
@@ -273,23 +290,27 @@ public sealed class SessionManager : IDisposable
             return entry.Info;
         }
     }
-    public SessionInfo SetNotification(string id, bool enabled)
+    public SessionInfo SetNotification(string id, bool enabled, string[]? patterns = null)
     {
         var entry = Find(id);
         lock (entry.Gate)
         {
-            if (entry.Info.IsFinished) throw new InvalidOperationException("任务已结束，无法调整完成通知。");
-            if (entry.Info.Request.Notify == enabled) return entry.Info;
+            if (entry.Info.IsFinished) throw new InvalidOperationException("任务已结束，无法调整通知条件。");
+            patterns ??= entry.Info.Request.NotifyPatterns;
+            bool patternsChanged = !entry.Info.Request.NotifyPatterns.SequenceEqual(patterns);
+            var matcher = patternsChanged ? new OutputNotificationMatcher(patterns) : entry.Matcher;
+            if (entry.Info.Request.Notify == enabled && !patternsChanged) return entry.Info;
             var updated = entry.Info with
             {
-                Request = entry.Info.Request with { Notify = enabled },
-                NotificationStatus = enabled ? "pending" : null,
-                NotificationError = null, Notification = null
+                Request = entry.Info.Request with { Notify = enabled, NotifyPatterns = patterns.ToArray() },
+                NotificationStatus = entry.Info.NotificationTrigger is not null ? entry.Info.NotificationStatus : enabled || patterns.Length > 0 ? "pending" : null,
+                NotificationConditionError = patternsChanged ? null : entry.Info.NotificationConditionError
             };
             // Publishing the preference and the completion transition share Gate.
             // Commit to disk first so a failed write cannot acknowledge a change.
             Persist(entry, updated);
             entry.Info = updated;
+            entry.Matcher = matcher;
             return updated;
         }
     }
@@ -386,7 +407,40 @@ public sealed class SessionManager : IDisposable
         if (request.Command is not null && request.RawArguments is not null) throw new ArgumentException("command 与 rawArguments 不能同时指定。");
         if (string.IsNullOrWhiteSpace(request.Shell) || request.Command?.Contains('\0') == true) throw new ArgumentException("shell 或命令无效。");
         if (!Enum.IsDefined(request.DisconnectPolicy)) throw new ArgumentException("断开策略无效。");
+        if (request.NotifyPatterns is null) throw new ArgumentException("notifyPatterns 必须是数组。");
+        _ = new OutputNotificationMatcher(request.NotifyPatterns);
         ValidateSize(request.Columns, request.Rows);
+    }
+    private static bool HasConditions(CreateSessionRequest request) => request.Notify || request.NotifyPatterns.Length > 0;
+    private static SessionInfo? ClaimNotification(Entry entry, NotificationTrigger trigger)
+    {
+        if (entry.Info.NotificationTrigger is not null) return null;
+        var updated = entry.Info with { NotificationTrigger = trigger, NotificationStatus = "pending", NotificationError = null, Notification = null };
+        Persist(entry, updated);
+        entry.Info = updated;
+        return updated;
+    }
+    private void RequestNotification(SessionInfo info)
+    {
+        try { NotificationRequested?.Invoke(info); }
+        catch (Exception ex) { logger.LogWarning(ex, "任务通知失败 {Id}", info.Id); }
+    }
+    private void FinishNotifications(Entry entry)
+    {
+        SessionInfo? notification = null;
+        lock (entry.Gate)
+        {
+            if (entry.Info.NotificationTrigger is null)
+            {
+                if (entry.Info.Request.Notify) notification = ClaimNotification(entry, new("completed", DateTimeOffset.UtcNow));
+                else if (entry.Info.Request.NotifyPatterns.Length > 0)
+                {
+                    entry.Info = entry.Info with { NotificationStatus = "notMatched", NotificationError = null };
+                    Persist(entry);
+                }
+            }
+        }
+        if (notification is not null) RequestNotification(notification);
     }
     private static void ValidateSize(int columns, int rows)
     {

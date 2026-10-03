@@ -58,6 +58,7 @@
                                     <MenuFlyoutItem x:Name="CopyButton" Text="复制日志" Click="Copy_Click" />
                                     <MenuFlyoutItem x:Name="ExportButton" Text="导出原始输出" Click="Export_Click" />
                                     <MenuFlyoutItem x:Name="FolderButton" Text="打开工作目录" Click="Folder_Click" />
+                                    <MenuFlyoutItem Text="通知条件…" Click="NotificationConditions_Click" />
                                     <MenuFlyoutSeparator />
                                     <MenuFlyoutItem x:Name="StopButton" Text="终止任务" Click="Stop_Click" IsEnabled="False" />
                                     <MenuFlyoutItem x:Name="DeleteButton" Text="删除历史" Click="Delete_Click" IsEnabled="False" />

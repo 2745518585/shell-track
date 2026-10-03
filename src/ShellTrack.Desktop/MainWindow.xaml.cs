@@ -38,7 +38,8 @@ public partial class MainWindow : Window
         public string Title => TaskTitle(Session.Request);
         public string Subtitle => $"{StateName(Session.State)} · {Session.StartedAt.LocalDateTime:MM-dd HH:mm:ss}" + (Session.ExitCode is null ? "" : $" · 退出码 {Session.ExitCode}");
         public string Preview => string.IsNullOrWhiteSpace(Session.LatestOutputLine) ? (Session.IsFinished ? "没有可显示的输出" : "等待输出…") : Session.LatestOutputLine;
-        public string NotificationLabel => Session.Request.Notify ? "完成通知已开启" : "完成通知已关闭";
+        private int NotificationConditionCount => (Session.Request.Notify ? 1 : 0) + Session.Request.NotifyPatterns.Length;
+        public string NotificationLabel => NotificationConditionCount > 0 ? $"通知条件 {NotificationConditionCount} 项" : "通知已关闭";
         public event PropertyChangedEventHandler? PropertyChanged;
         public void Update(SessionInfo session)
         {
@@ -131,13 +132,15 @@ public partial class MainWindow : Window
     }
     private static string NotificationText(SessionInfo s)
     {
-        if (s.NotificationStatus is null) return "\n\n完成通知已关闭";
+        if (s.NotificationStatus is null) return "\n\n通知已关闭";
         string status = s.NotificationStatus switch
         {
-            "pending" => "等待完成后发送", "submitted" => "已提交给 Windows", "blocked" => "被系统设置阻止",
+            "pending" => s.NotificationTrigger is null ? "等待任意条件满足" : "正在发送", "notMatched" => "任务结束，未匹配条件", "submitted" => "已提交给 Windows", "blocked" => "被系统设置阻止",
             "unavailable" => "通知组件不可用", "failed" => "发送失败", "interrupted" => "发送已中断", _ => s.NotificationStatus
         };
-        return "\n\n通知\n" + status + (s.NotificationError is null ? "" : "\n" + s.NotificationError);
+        string conditions = (s.Request.Notify ? "\n• 任务结束" : "") + string.Concat(s.Request.NotifyPatterns.Select(p => "\n• 输出正则：" + p));
+        string trigger = s.NotificationTrigger is null ? "" : s.NotificationTrigger.Kind == "outputMatch" ? $"\n触发正则：{s.NotificationTrigger.Pattern}\n匹配文本：{s.NotificationTrigger.MatchedText}" : "\n触发条件：任务结束";
+        return "\n\n通知\n" + status + conditions + trigger + (s.NotificationError is null ? "" : "\n" + s.NotificationError) + (s.NotificationConditionError is null ? "" : "\n" + s.NotificationConditionError);
     }
     private async void TaskList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -209,6 +212,42 @@ public partial class MainWindow : Window
             ConnectionStatus.Text = enabled ? "已开启完成通知。" : "已关闭完成通知。";
         }
         catch (Exception ex) { ConnectionStatus.Text = "更新通知设置失败：" + ex.Message; }
+        finally { notificationUpdating = false; await Refresh(); }
+    }
+    private async void NotificationConditions_Click(object sender, RoutedEventArgs e)
+    {
+        if (selectedId is null || client is null || notificationUpdating) return;
+        string id = selectedId; var source = client;
+        try
+        {
+            var info = await source.GetAsync(id, closing.Token);
+            var completion = new CheckBox { Content = "任务结束时通知", IsChecked = info.Request.Notify, IsEnabled = !info.IsFinished };
+            var patterns = new TextBox { Header = "输出正则（每行一个条件）", Text = string.Join("\n", info.Request.NotifyPatterns), AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap, Height = 180, IsReadOnly = info.IsFinished, PlaceholderText = "例如：ERROR|Exception\n服务已启动" };
+            var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            var content = new StackPanel { Spacing = 12, MinWidth = 300, MaxWidth = 480 };
+            content.Children.Add(new TextBlock { Text = "任意一个条件满足即通知，每个任务最多通知一次。修改正则仅检查保存后的新输出。", TextWrapping = TextWrapping.Wrap });
+            content.Children.Add(completion); content.Children.Add(patterns); content.Children.Add(error);
+            var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = "通知条件", Content = content, PrimaryButtonText = "保存",
+                IsPrimaryButtonEnabled = !info.IsFinished, CloseButtonText = info.IsFinished ? "关闭" : "取消", DefaultButton = ContentDialogButton.Close };
+            dialog.PrimaryButtonClick += async (senderDialog, click) =>
+            {
+                click.Cancel = true; var deferral = click.GetDeferral();
+                try
+                {
+                    string[] expressions = patterns.Text.Split('\n').Select(p => p.TrimEnd('\r')).Where(p => !string.IsNullOrWhiteSpace(p)).ToArray();
+                    _ = new OutputNotificationMatcher(expressions);
+                    var updated = await source.SetNotificationConditionsAsync(id, new(completion.IsChecked == true, expressions), closing.Token);
+                    rows.FirstOrDefault(r => r.Session.Id == id)?.Update(updated);
+                    if (selectedId == id) UpdateDetails(updated);
+                    ConnectionStatus.Text = "通知条件已保存。"; click.Cancel = false;
+                }
+                catch (Exception ex) { error.Text = ex.Message; }
+                finally { deferral.Complete(); }
+            };
+            notificationUpdating = true; await dialog.ShowAsync();
+        }
+        catch (Exception ex) { ConnectionStatus.Text = "读取通知条件失败：" + ex.Message; }
         finally { notificationUpdating = false; await Refresh(); }
     }
     private async void Stop_Click(object sender, RoutedEventArgs e) => await Operate(async () => { if (selectedId is not null) await client!.TerminateAsync(selectedId); });

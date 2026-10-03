@@ -35,6 +35,7 @@ static async Task<int> Run(string[] arguments)
     string shell = "pwsh", cwd = Environment.CurrentDirectory, action = "run";
     string? id = null;
     bool notify = false, detach = false, keep = false, json = false;
+    List<string> notifyPatterns = [];
     for (int i = 0; i < arguments.Length; i++)
     {
         string Value() => ++i < arguments.Length ? arguments[i] : throw new ArgumentException("选项缺少参数。");
@@ -52,6 +53,7 @@ static async Task<int> Run(string[] arguments)
                     --shell -s <shell>   --command -c <script>   --cwd -w <path>
                     --data-dir -d <path>   --output -o <file>   --json -j
                     --notify -n   --detach -b   --keep -k   --help -h
+                    --notify-match -nm <regex>  输出匹配时通知，可重复；与 -n 满足任意条件通知一次。
                     --detach 仅用于单次命令；--keep 保留断开后的交互会话。
                     """);
                 return 0;
@@ -61,6 +63,7 @@ static async Task<int> Run(string[] arguments)
             case "--cwd": case "-w": cwd = Path.GetFullPath(Value()); break;
             case "--output": case "-o": outputFile = Value(); break;
             case "--notify": case "-n": notify = true; break;
+            case "--notify-match": case "-nm": notifyPatterns.Add(Value()); break;
             case "--detach": case "-b": detach = true; break;
             case "--keep": case "-k": keep = true; break;
             case "--json": case "-j": json = true; break;
@@ -109,7 +112,7 @@ static async Task<int> Run(string[] arguments)
     var size = Size();
     var session = await client.CreateAsync(new CreateSessionRequest
     {
-        Shell = shell, Command = command, WorkingDirectory = cwd, Notify = notify,
+        Shell = shell, Command = command, WorkingDirectory = cwd, Notify = notify, NotifyPatterns = notifyPatterns.ToArray(),
         Columns = size.Columns, Rows = size.Rows,
         DisconnectPolicy = command is null && !keep ? DisconnectPolicy.Terminate : DisconnectPolicy.Continue
     });

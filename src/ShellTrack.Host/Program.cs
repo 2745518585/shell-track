@@ -37,9 +37,9 @@ using (instanceLock)
     var app = builder.Build();
     var manager = app.Services.GetRequiredService<SessionManager>();
     var notifier = new NotificationDispatcher(dataRoot, app.Logger);
-    manager.Completed += session =>
+    manager.NotificationRequested += session =>
     {
-        if (session.Request.Notify) _ = Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
             var result = await notifier.SendAsync(session);
             try { manager.RecordNotification(session.Id, result); }
@@ -70,7 +70,7 @@ using (instanceLock)
             await Error(context, status, status == 500 ? "internal_error" : "invalid_request", status == 500 ? "后台请求失败。" : ex.Message, requestId);
         }
     });
-    app.MapGet("/v1/health", () => new HealthInfo(hostId, 1, "0.2.0", SupportsRawArguments: true));
+    app.MapGet("/v1/health", () => new HealthInfo(hostId, 1, "0.2.0", SupportsRawArguments: true, SupportsNotificationConditions: true));
     app.MapGet("/v1/tasks", (int? skip, int? take) =>
     {
         if ((skip ?? 0) < 0 || (take ?? 100) is < 1 or > 1000) throw new ArgumentException("分页参数无效。");
@@ -80,7 +80,7 @@ using (instanceLock)
     app.MapGet("/v1/tasks/{id}", (string id) => manager.Get(id));
     app.MapGet("/v1/tasks/{id}/output", (string id, long? offset, int? count) => manager.ReadOutput(id, offset ?? 0, count ?? 65536));
     app.MapPost("/v1/tasks/{id}/terminate", (string id) => manager.Terminate(id));
-    app.MapPost("/v1/tasks/{id}/notification", (string id, NotificationPreference preference) => manager.SetNotification(id, preference.Enabled));
+    app.MapPost("/v1/tasks/{id}/notification", (string id, NotificationPreference preference) => manager.SetNotification(id, preference.Enabled, preference.Patterns));
     app.MapDelete("/v1/tasks/{id}", (string id) => { manager.Delete(id); return Results.NoContent(); });
     app.MapPost("/v1/shutdown", (IHostApplicationLifetime lifetime) =>
     {

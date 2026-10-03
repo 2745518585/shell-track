@@ -79,9 +79,9 @@ public partial class App : Application
                 var notification = new AppNotificationBuilder()
                     .AddArgument("taskId", task.Id)
                     .AddArgument("dataRoot", client.DataRoot)
-                    .AddText(task.ExitCode == 0 ? "Shell Track：执行完成" : "Shell Track：任务结束")
+                    .AddText(task.NotificationTrigger?.Kind == "outputMatch" ? "Shell Track：输出匹配" : task.ExitCode == 0 ? "Shell Track：执行完成" : "Shell Track：任务结束")
                     .AddText(task.Request.Command ?? (string.IsNullOrEmpty(task.Request.RawArguments) ? "交互会话" : task.Request.RawArguments))
-                    .AddText($"{task.Request.Shell} · {task.State} · 退出码 {task.ExitCode?.ToString() ?? "无"}")
+                    .AddText(task.NotificationTrigger?.Kind == "outputMatch" ? $"正则：{task.NotificationTrigger.Pattern}\n匹配：{task.NotificationTrigger.MatchedText}" : $"{task.Request.Shell} · {task.State} · 退出码 {task.ExitCode?.ToString() ?? "无"}")
                     .BuildNotification();
                 AppNotificationManager.Default.Show(notification);
                 if (notification.Id == 0) throw new InvalidOperationException("Windows 未接受该通知。");

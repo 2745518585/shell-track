@@ -91,6 +91,8 @@ public sealed class ShellTrackClient : IDisposable
     public Task<OutputPage> OutputAsync(string id, long offset, CancellationToken cancellation = default) => Read<OutputPage>($"/v1/tasks/{Uri.EscapeDataString(id)}/output?offset={offset}", cancellation);
     public async Task<SessionInfo> CreateAsync(CreateSessionRequest request, CancellationToken cancellation = default)
     {
+        if (request.NotifyPatterns?.Length > 0 && !(await HealthAsync(cancellation)).SupportsNotificationConditions)
+            throw new InvalidOperationException("当前后台版本不支持通知条件，请结束旧后台后重试。");
         using var response = await http.PostAsJsonAsync("/v1/tasks", request, Protocol.Json, cancellation);
         await Ensure(response, cancellation); return (await response.Content.ReadFromJsonAsync<SessionInfo>(Protocol.Json, cancellation))!;
     }
@@ -100,8 +102,12 @@ public sealed class ShellTrackClient : IDisposable
         await Ensure(response, cancellation); return (await response.Content.ReadFromJsonAsync<SessionInfo>(Protocol.Json, cancellation))!;
     }
     public async Task<SessionInfo> SetNotificationAsync(string id, bool enabled, CancellationToken cancellation = default)
+        => await SetNotificationConditionsAsync(id, new NotificationPreference(enabled), cancellation);
+    public async Task<SessionInfo> SetNotificationConditionsAsync(string id, NotificationPreference preference, CancellationToken cancellation = default)
     {
-        using var response = await http.PostAsJsonAsync($"/v1/tasks/{Uri.EscapeDataString(id)}/notification", new NotificationPreference(enabled), Protocol.Json, cancellation);
+        if (preference.Patterns is not null && !(await HealthAsync(cancellation)).SupportsNotificationConditions)
+            throw new InvalidOperationException("当前后台版本不支持通知条件，请结束旧后台后重试。");
+        using var response = await http.PostAsJsonAsync($"/v1/tasks/{Uri.EscapeDataString(id)}/notification", preference, Protocol.Json, cancellation);
         await Ensure(response, cancellation); return (await response.Content.ReadFromJsonAsync<SessionInfo>(Protocol.Json, cancellation))!;
     }
     public async Task DeleteAsync(string id, CancellationToken cancellation = default)
