@@ -35,4 +35,4 @@ CI 不要求可见桌面，不验证通知横幅或 WinUI 的视觉效果。通�
 
 ## 发布流程检查
 
-`scripts/test-release.ps1` 检查版本边界、附件完整性、篡改/缺失/重复摘要与意外私钥附件；`scripts/test-release-signing.ps1` 在 Windows 生成并清理一次性证书，验证错误发布者拒绝、正确 PFX 导入、临时文件清理和信任库未变化。两者加入 CI。`verify-release-assets.ps1` 在发布前及跨 job 下载后重复验证实际发布产物，发布 job 再验证 GitHub 构建来源证明。GitHub Environment、令牌权限与在线 Release 发布仍需首次远程试跑验收。
+`scripts/test-release.ps1` 检查版本边界、附件完整性、篡改/缺失/重复摘要与意外私钥附件；`scripts/test-release-signing.ps1` 在 Windows 生成并清理一次性证书，验证错误发布者拒绝、正确 PFX 导入、临时文件清理和信任库未变化。两者加入 CI。普通 CI 使用固定测试版本 `0.3.0` 实际生成 ZIP 和完整发布附件集合，并检查程序版本、摘要和布局；它使用一次性开发证书，不依赖正式签名 Secrets，也不创建 GitHub Release。`verify-release-assets.ps1` 在正式发布前及跨 job 下载后重复验证实际发布产物，发布 job 再验证 GitHub 构建来源证明。GitHub Environment、令牌权限与在线 Release 发布仍需首次远程试跑验收。

@@ -169,7 +169,7 @@ jobs:
           fi
           remote_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
           test "$remote_commit" = "$RELEASE_COMMIT"
-          while read -r digest filename; do
+          while read -r _ filename; do
             gh attestation verify "artifacts/release/$filename" --repo "$GH_REPO" --signer-workflow "$GH_REPO/.github/workflows/release.yml" --deny-self-hosted-runners
           done < artifacts/release/SHA256SUMS.txt
           remote_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)

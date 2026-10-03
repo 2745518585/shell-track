@@ -38,6 +38,10 @@ jobs:
   windows:
     runs-on: windows-2022
     timeout-minutes: 45
+    env:
+      # Fixed fixture version; production releases use their validated tag.
+      CI_PACKAGE_VERSION: '0.3.0'
+      CI_COMMIT: ${{ github.sha }}
     defaults:
       run:
         shell: pwsh
@@ -75,15 +79,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Publish self-contained x64 bundle
-        run: ./scripts/publish.ps1 -SelfContained -OutputDirectory artifacts/ci-win-x64
+        run: ./scripts/publish.ps1 -SelfContained -Version $env:CI_PACKAGE_VERSION -OutputDirectory artifacts/ci-win-x64
       - name: Verify published CLI and WinUI resources
         run: ./scripts/verify-bundle.ps1 -BundleDirectory artifacts/ci-win-x64
       - name: Prepare Inno Setup compiler
         run: ./scripts/install-packaging-tools.ps1
       - name: Build signed EXE and MSIX installers
-        run: ./scripts/build-installers.ps1 -BundleDirectory artifacts/ci-win-x64 -OutputDirectory artifacts/ci-installers
+        run: ./scripts/build-installers.ps1 -BundleDirectory artifacts/ci-win-x64 -OutputDirectory artifacts/ci-installers -Version "$env:CI_PACKAGE_VERSION.0"
       - name: Verify signatures and EXE installation and uninstall
         run: ./scripts/verify-installers.ps1 -InstallerDirectory artifacts/ci-installers
+      - name: Build and verify portable ZIP and release attachment set
+        run: |
+          ./scripts/create-release-assets.ps1 -Tag "v$env:CI_PACKAGE_VERSION" -Commit $env:CI_COMMIT -BundleDirectory artifacts/ci-win-x64 -InstallerDirectory artifacts/ci-installers -OutputDirectory artifacts/ci-release-assets
+          ./scripts/verify-release-assets.ps1 -Directory artifacts/ci-release-assets -Tag "v$env:CI_PACKAGE_VERSION" -Commit $env:CI_COMMIT
       - name: Upload x64 bundle
         if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -98,5 +106,14 @@ jobs:
         with:
           name: shelltrack-installers
           path: artifacts/ci-installers/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload tested ZIP and complete release attachment set
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: shelltrack-release-fixture
+          path: artifacts/ci-release-assets/
+          compression-level: 0
           if-no-files-found: error
           retention-days: 14
