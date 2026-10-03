@@ -83,7 +83,9 @@ jobs:
       - name: Verify published CLI and WinUI resources
         run: ./scripts/verify-bundle.ps1 -BundleDirectory artifacts/ci-win-x64
       - name: Prepare Inno Setup compiler
-        run: ./scripts/install-packaging-tools.ps1
+        run: |
+          ./scripts/install-packaging-tools.ps1
+          ./scripts/test-packaging-tools.ps1
       - name: Build signed EXE and MSIX installers
         run: ./scripts/build-installers.ps1 -BundleDirectory artifacts/ci-win-x64 -OutputDirectory artifacts/ci-installers -Version "$env:CI_PACKAGE_VERSION.0"
       - name: Verify signatures and EXE installation and uninstall

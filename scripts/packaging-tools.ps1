@@ -10,14 +10,20 @@ function Find-WindowsSdkTool([string]$Name) {
 function Find-InnoCompiler([string]$Specified) {
     if ($Specified) {
         if (-not (Test-Path -LiteralPath $Specified)) { throw "Inno compiler missing: $Specified" }
+        if (-not (Test-Path -LiteralPath (Join-Path (Split-Path $Specified -Parent) 'license.txt'))) {
+            throw 'Specify the actual Inno Setup installation ISCC.exe, with its license.txt; PATH shims are not supported.'
+        }
         return [IO.Path]::GetFullPath($Specified)
     }
-    $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
-    if ($command) { return $command.Source }
+    # Prefer the pinned/verified tool, not a runner's Chocolatey PATH shim.
     foreach ($candidate in @((Join-Path $PSScriptRoot '../work/tools/InnoSetup/ISCC.exe'),
         (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'), (Join-Path $env:ProgramFiles 'Inno Setup 7/ISCC.exe'),
         (Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 6/ISCC.exe'))) {
-        if (Test-Path -LiteralPath $candidate) { return [IO.Path]::GetFullPath($candidate) }
+        if ((Test-Path -LiteralPath $candidate) -and (Test-Path -LiteralPath (Join-Path (Split-Path $candidate -Parent) 'license.txt'))) {
+            return [IO.Path]::GetFullPath($candidate)
+        }
     }
+    $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($command -and (Test-Path -LiteralPath (Join-Path (Split-Path $command.Source -Parent) 'license.txt'))) { return $command.Source }
     throw 'Inno Setup compiler missing. Run scripts/install-packaging-tools.ps1 or supply -InnoCompiler.'
 }
