@@ -14,9 +14,21 @@
 - `verify-bundle.ps1 -BundleDirectory artifacts/my-bundle` 检查发布包的窗口资源，并实际运行包内 CLI/Host 验证输出、退出码与记录。使用独立测试数据目录，不要求可见桌面。
 
 普通发布默认依赖 .NET 10 和 ASP.NET Core 10 运行时；`publish.ps1 -SelfContained` 会携带运行时。Windows App SDK 随 WinUI 发布目录一起提供。
+`publish.ps1 -Version 0.3.1` 将标签版本写入程序文件；不传时保留开发默认版本。
 
 - `install-packaging-tools.ps1` 下载固定版本的 Inno Setup、验证发布者签名，并将编译器安装到仓库 `work/tools/InnoSetup`。还需要 Windows SDK 的 MakeAppx 与 SignTool。
 - `build-installers.ps1` 默认发布自包含目录并构建 EXE/MSIX；`-BundleDirectory <目录>` 可复用完整自包含发布包。`-Version 0.3.0.0` 设置版本，`-OutputDirectory <新目录>` 设置产物目录。默认生成/复用当前用户证书库中的开发证书，也可用 `-CertificateThumbprint` 指定已有私钥的证书；`-TimestampUrl` 指定时间戳服务。只导出公开证书，不导出私钥，不修改系统信任。
 - `verify-installers.ps1 -InstallerDirectory <目录>` 验证签名/所有文件块摘要，在独立临时目录测试 EXE 安装、PATH 和卸载；已有 EXE 安装时拒绝覆盖。`-TestMsixLayout` 要求已开启开发模式，注册签名包解包后的开发布局，验证别名与窗口，再注销；已有 MSIX 安装时拒绝覆盖，不修改开发模式或证书信任设置。
 
 `local-environment.ps1` 将本次脚本进程的 NuGet 缓存和临时文件放到 `work` 内，结束后恢复原来的环境变量。`work` 和 `artifacts` 都不会提交到 Git。
+
+## GitHub Release
+
+环境配置与操作见 [发布指南](../docs/releasing.md)。`.github/workflows/release.yml` 使用版本标签自动发布，也允许手动只构建产物。
+
+- `release-version.ps1 -Tag v0.3.1` 校验标签并返回程序/MSIX 版本。
+- `import-release-certificate.ps1` 从 Environment Secrets 对应的环境变量导入固定 PFX，校验指纹、有效期与代码签名用途，清除临时文件；只用于新的受保护 runner。输出公开指纹到 `GITHUB_OUTPUT`。
+- `sign-release-bundle.ps1 -BundleDirectory <目录> -CertificateThumbprint <指纹> -TimestampUrl <URL>` 对自有二进制签名并检查时间戳。
+- `create-release-assets.ps1 -Tag <标签> -Commit <完整SHA> -BundleDirectory <目录> -InstallerDirectory <目录> -OutputDirectory <新目录>` 检查版本一致性并生成 ZIP、固定发布附件与摘要。
+- `verify-release-assets.ps1 -Directory <目录> -Tag <标签> -Commit <完整SHA>` 检查附件集合、metadata、校验和与 ZIP 布局；可在 Windows/Linux 的 PowerShell 7 中运行。
+- `test-release.ps1` 验证版本边界、文件篡改、缺失/重复摘要和意外私钥附件的拒绝；`test-release-signing.ps1` 用一次性测试密钥验证 PFX 导入、错误指纹拒绝和清理，不导出开发者/发布证书。

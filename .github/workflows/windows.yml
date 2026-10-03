@@ -2,6 +2,7 @@ name: Windows build and integration
 
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -18,30 +19,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflow-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint GitHub Actions workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz --output "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" .github/workflows/*.yml
+
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 45
     defaults:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
       - name: Cache project-local NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: work/nuget/packages
           key: windows-nuget-${{ hashFiles('global.json', 'Directory.Build.props', 'src/**/*.csproj', 'tests/**/*.csproj') }}
           restore-keys: windows-nuget-
       - name: Build core, CLI, integration runner and WinUI
         run: ./scripts/build.ps1 -Configuration Release
+      - name: Check release version rules and asset integrity
+        run: |
+          ./scripts/test-release.ps1
+          ./scripts/test-release-signing.ps1
       - name: Run real Windows ConPTY and API checks
         run: ./scripts/test.ps1 -Configuration Release -NoBuild
       - name: Upload test diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-test-diagnostics
           path: |
@@ -63,7 +86,7 @@ jobs:
         run: ./scripts/verify-installers.ps1 -InstallerDirectory artifacts/ci-installers
       - name: Upload x64 bundle
         if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: shelltrack-win-x64
           path: artifacts/ci-win-x64/
@@ -71,7 +94,7 @@ jobs:
           retention-days: 14
       - name: Upload installers and public certificate
         if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: shelltrack-installers
           path: artifacts/ci-installers/

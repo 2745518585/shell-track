@@ -25,10 +25,14 @@
 
 每次运行使用独立的 `work/tests-<随机编号>` 数据目录，不连接现有任务后台；完成时停止测试 Host。失败时保留该目录，并输出它的路径。Host 标准输出和错误保存在 `host-<序号>-stdout.log`、`host-<序号>-stderr.log`。
 
-GitHub Actions 的 `windows.yml` 在 `windows-latest` 上构建核心和 WinUI，再运行同一组检查，并用 `verify-bundle.ps1` 验证发布包内的 CLI/Host 和 XAML 资源。失败附件只收集测试日志与会话数据，不上传连接凭据。手动运行可选择上传 x64 发布包。
+GitHub Actions 的 `windows.yml` 在 `windows-2022` 上构建核心和 WinUI，再运行同一组检查，并用 `verify-bundle.ps1` 验证发布包内的 CLI/Host 和 XAML 资源。失败附件只收集测试日志与会话数据，不上传连接凭据。手动运行可选择上传 x64 发布包。
 
 CI 不要求可见桌面，不验证通知横幅或 WinUI 的视觉效果。通知相关测试只改变任务设置，并在任务结束前关闭通知；字体缩放、托盘菜单、日志换行与鼠标高亮仍需要人工确认。
 
 安装包另用 `scripts/verify-installers.ps1` 验证 EXE 签名、MSIX 密码学签名与所有文件块摘要，再在独立临时目录测试 EXE 安装、PATH、实际命令执行和卸载。已安装的 EXE 不会被测试覆盖。CI 构建并执行这组检查；仅输出公开证书，不上传私钥。
 
 可选 `-TestMsixLayout` 要求已开启 Windows 开发模式，从签名包解包后进行开发注册，验证五个别名、后台、窗口身份/DPI和注销后数据保留。已有 MSIX 安装时拒绝覆盖；不会修改开发模式或导入信任证书。此检查不能替代使用者信任证书后的正式 MSIX 安装验收。
+
+## 发布流程检查
+
+`scripts/test-release.ps1` 检查版本边界、附件完整性、篡改/缺失/重复摘要与意外私钥附件；`scripts/test-release-signing.ps1` 在 Windows 生成并清理一次性证书，验证错误发布者拒绝、正确 PFX 导入、临时文件清理和信任库未变化。两者加入 CI。`verify-release-assets.ps1` 在发布前及跨 job 下载后重复验证实际发布产物，发布 job 再验证 GitHub 构建来源证明。GitHub Environment、令牌权限与在线 Release 发布仍需首次远程试跑验收。

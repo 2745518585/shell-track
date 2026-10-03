@@ -145,7 +145,7 @@ pwsh -NoProfile -File scripts/verify-installers.ps1 -InstallerDirectory artifact
 
 构建脚本把 NuGet 缓存与临时目录放在仓库 `work/` 中，并在结束后恢复当前进程的原环境变量，不修改全局配置。发布脚本会复制本项目许可证、第三方说明与依赖包的许可文件。
 
-GitHub Actions 在 Windows runner 上构建核心、运行集成测试并编译 WinUI，也会构建两种安装包，验证签名、MSIX 内容和 EXE 安装/卸载；手动运行工作流时可选上传发布目录与安装包。通知实际显示、托盘操作和 DPI 清晰度需要交互式 Windows 桌面验收，不能由无交互的 CI 证明。
+GitHub Actions 在 Windows runner 上构建核心、运行集成测试并编译 WinUI，也会构建两种安装包，验证签名、MSIX 内容和 EXE 安装/卸载；手动运行验证工作流时可选上传开发产物。推送 `vMAJOR.MINOR.PATCH` 标签后，独立发布流程自动测试、签名并发布自包含 ZIP、EXE 和 MSIX，附校验和与构建来源证明。首次需要配置 `release` Environment 和固定签名证书，详见 [发布指南](docs/releasing.md)。通知实际显示、托盘操作和 DPI 清晰度需要交互式 Windows 桌面验收，不能由无交互的 CI 证明。
 
 ## 记录与接口
 
