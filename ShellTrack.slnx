@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ShellTrack.Core/ShellTrack.Core.csproj" />
+    <Project Path="src/ShellTrack.Contracts/ShellTrack.Contracts.csproj" />
+    <Project Path="src/ShellTrack.Windows/ShellTrack.Windows.csproj" />
+    <Project Path="src/ShellTrack.Client/ShellTrack.Client.csproj" />
+    <Project Path="src/ShellTrack.Host/ShellTrack.Host.csproj" />
+    <Project Path="src/ShellTrack.Cli/ShellTrack.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ShellTrack.Integration/ShellTrack.Integration.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../../assets/shelltrack.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="../../assets/shelltrack.ico" Link="assets/shelltrack.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../assets/shelltrack.png" Link="assets/shelltrack.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260803003" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.260921001" />
+    <ProjectReference Include="../ShellTrack.Client/ShellTrack.Client.csproj" />
+    <ProjectReference Include="../ShellTrack.Core/ShellTrack.Core.csproj" />
+  </ItemGroup>
+  <Target Name="PublishCompiledXamlResources" AfterTargets="ComputeFilesToPublish">
+    <!-- Component WinUI references generate these files for build output but do
+         not add the application's compiled markup to dotnet publish automatically. -->
+    <ItemGroup>
+      <_CompiledXamlResource Include="$(TargetDir)**/*.xbf;$(TargetDir)$(AssemblyName).pri" />
+      <ResolvedFileToPublish Include="@(_CompiledXamlResource)">
+        <RelativePath>%(_CompiledXamlResource.RecursiveDir)%(_CompiledXamlResource.Filename)%(_CompiledXamlResource.Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

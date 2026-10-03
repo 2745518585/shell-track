@@ -1,0 +1,101 @@
+<Window
+    x:Class="ShellTrack.Desktop.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Shell Track">
+    <Grid x:Name="RootGrid" Padding="24" RowSpacing="16" UseLayoutRounding="True" SizeChanged="RootGrid_SizeChanged" Loaded="RootGrid_Loaded">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="Shell Track" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock x:Name="TaskCount" Text="任务与输出" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <ToggleButton x:Name="DetailsToggle" Content="详情" IsChecked="True" Click="DetailsToggle_Click" ToolTipService.ToolTip="显示或收起任务详情" />
+                <Button Content="刷新" Click="Refresh_Click" />
+                <Button Content="退出" Click="Exit_Click" ToolTipService.ToolTip="退出查看器，后台任务继续运行" />
+            </StackPanel>
+        </Grid>
+        <Grid Grid.Row="1" ColumnSpacing="16">
+            <Grid.ColumnDefinitions><ColumnDefinition x:Name="TaskColumn" Width="290" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <ListView x:Name="TaskList" SelectionChanged="TaskList_SelectionChanged" SelectionMode="Single">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="8" /><Setter Property="Margin" Value="0,0,0,6" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Spacing="6" Padding="2,6">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                            <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4" Padding="8,6">
+                                <TextBlock Text="{Binding Preview}" FontFamily="Cascadia Mono,Consolas" FontSize="12" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+                            </Border>
+                            <TextBlock Text="{Binding NotificationLabel}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+            <Grid Grid.Column="1" x:Name="ContentGrid" ColumnSpacing="0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition x:Name="DetailsColumn" Width="0" /></Grid.ColumnDefinitions>
+                <Grid RowSpacing="10">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <StackPanel Spacing="4">
+                        <TextBlock x:Name="LogTitle" Text="选择一个任务" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="LogSummary" Text="选择左侧任务，查看实时输出和历史日志。" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Grid Grid.Row="1" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <CheckBox x:Name="FollowToggle" Content="跟随输出" IsChecked="True" Click="FollowToggle_Click" />
+                            <CheckBox x:Name="NotificationToggle" Content="完成通知" IsEnabled="False" Click="NotificationToggle_Click" ToolTipService.ToolTip="在任务结束前开启或关闭通知" />
+                        </StackPanel>
+                        <Button Grid.Column="1" x:Name="ActionsButton" Content="操作" IsEnabled="False">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem x:Name="CopyButton" Text="复制日志" Click="Copy_Click" />
+                                    <MenuFlyoutItem x:Name="ExportButton" Text="导出原始输出" Click="Export_Click" />
+                                    <MenuFlyoutItem x:Name="FolderButton" Text="打开工作目录" Click="Folder_Click" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem x:Name="StopButton" Text="终止任务" Click="Stop_Click" IsEnabled="False" />
+                                    <MenuFlyoutItem x:Name="DeleteButton" Text="删除历史" Click="Delete_Click" IsEnabled="False" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </Grid>
+                    <Border Grid.Row="2" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                        <ListView x:Name="LogList" SelectionMode="Single" IsItemClickEnabled="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" Padding="0,8" KeyDown="LogList_KeyDown">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="VerticalContentAlignment" Value="Top" /><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="24" /><Setter Property="Margin" Value="0" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnSpacing="12" Padding="8,2,12,2">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="54" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Number}" FontFamily="Cascadia Mono,Consolas" FontSize="13" TextAlignment="Right" Foreground="{ThemeResource TextFillColorTertiaryBrush}" IsTextSelectionEnabled="False" VerticalAlignment="Top" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Text}" FontFamily="Cascadia Mono,Consolas" FontSize="13" TextWrapping="Wrap" IsTextSelectionEnabled="True" VerticalAlignment="Top" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Border>
+                </Grid>
+                <Border Grid.Column="1" x:Name="DetailsPanel" Visibility="Collapsed" Margin="16,0,0,0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="16">
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="任务详情" FontWeight="SemiBold" FontSize="16" />
+                            <TextBlock x:Name="DetailTitle" Text="选择一个任务" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                            <TextBlock x:Name="DetailStatus" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="日志按逻辑行编号。长行自动换行，悬停高亮当前行，点击可固定选中。" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+        </Grid>
+        <TextBlock Grid.Row="2" x:Name="ConnectionStatus" Text="正在连接后台…" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+    </Grid>
+</Window>

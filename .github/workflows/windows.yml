@@ -1,0 +1,65 @@
+name: Windows build and integration
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish_bundle:
+        description: Build and upload a runnable x64 bundle
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Cache project-local NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: work/nuget/packages
+          key: windows-nuget-${{ hashFiles('global.json', 'Directory.Build.props', 'src/**/*.csproj', 'tests/**/*.csproj') }}
+          restore-keys: windows-nuget-
+      - name: Build core, CLI, integration runner and WinUI
+        run: ./scripts/build.ps1 -Configuration Release
+      - name: Run real Windows ConPTY and API checks
+        run: ./scripts/test.ps1 -Configuration Release -NoBuild
+      - name: Upload test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-diagnostics
+          path: |
+            work/tests-*/host-*-stdout.log
+            work/tests-*/host-*-stderr.log
+            work/tests-*/sessions/*/metadata.json
+            work/tests-*/sessions/*/output.bin
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish framework-dependent x64 bundle
+        run: ./scripts/publish.ps1 -OutputDirectory artifacts/ci-win-x64
+      - name: Verify published CLI and WinUI resources
+        run: ./scripts/verify-bundle.ps1 -BundleDirectory artifacts/ci-win-x64
+      - name: Upload x64 bundle
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: shelltrack-win-x64
+          path: artifacts/ci-win-x64/
+          if-no-files-found: error
+          retention-days: 14

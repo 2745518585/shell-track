@@ -1,0 +1,166 @@
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.Windows.AppNotifications;
+using Microsoft.Windows.AppNotifications.Builder;
+using Microsoft.Windows.AppLifecycle;
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Text.Json;
+using System.Runtime.InteropServices;
+using ShellTrack.Contracts;
+using ShellTrack.Client;
+using Microsoft.Win32;
+
+namespace ShellTrack.Desktop;
+
+public partial class App : Application
+{
+    private MainWindow? window;
+    private DispatcherQueue? dispatcher;
+    private AppInstance? instance;
+    public App()
+    {
+        // Keep taskbar and notification identity stable across build/publish paths.
+        Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID("ShellTrack.Desktop"));
+        InitializeComponent();
+    }
+
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        dispatcher = DispatcherQueue.GetForCurrentThread();
+        string? root = null, notifyId = null, showId = null;
+        var arguments = Environment.GetCommandLineArgs();
+        for (int i = 1; i < arguments.Length; i++)
+        {
+            if (arguments[i] == "--data-dir" && i + 1 < arguments.Length) root = arguments[++i];
+            else if (arguments[i] == "--notify" && i + 1 < arguments.Length) notifyId = arguments[++i];
+            else if (arguments[i] == "--task" && i + 1 < arguments.Length) showId = arguments[++i];
+        }
+        try
+        {
+            AppNotificationManager.Default.NotificationInvoked += (_, invocation) =>
+                dispatcher.TryEnqueue(() =>
+                {
+                    string? notificationRoot = invocation.Arguments.TryGetValue("dataRoot", out var value) ? value : root;
+                    string? taskId = invocation.Arguments.TryGetValue("taskId", out var id) ? id : null;
+                    if (notifyId is not null || !SameRoot(notificationRoot, root)) LaunchViewer(notificationRoot, taskId);
+                    else if (window is not null) Show(notificationRoot, taskId);
+                });
+            string icon = Path.Combine(AppContext.BaseDirectory, "assets", "shelltrack.png");
+            if (File.Exists(icon)) AppNotificationManager.Default.Register("Shell Track", new Uri(icon));
+            else AppNotificationManager.Default.Register();
+            UpdateActivationPath();
+        }
+        catch (Exception ex) { WriteDiagnostic(root, "通知注册失败：" + ex); }
+        if (notifyId is not null)
+        {
+            try
+            {
+                if (!AppNotificationManager.IsSupported()) throw new InvalidOperationException("当前进程不支持 Windows 通知；请以普通用户运行。");
+                using var client = await ShellTrackClient.ConnectAsync(root, autoStart: false, readOnly: true);
+                var task = await client.GetAsync(notifyId);
+                var setting = AppNotificationManager.Default.Setting;
+                SHQueryUserNotificationState(out int systemState);
+                if (setting != AppNotificationSetting.Enabled)
+                {
+                    WriteNotification(root, notifyId, new("blocked", "Windows 通知设置阻止了应用通知。", Setting: setting.ToString(), SystemState: NotificationStateName(systemState)));
+                    Environment.ExitCode = 1; Exit(); return;
+                }
+                var notification = new AppNotificationBuilder()
+                    .AddArgument("taskId", task.Id)
+                    .AddArgument("dataRoot", client.DataRoot)
+                    .AddText(task.ExitCode == 0 ? "Shell Track：执行完成" : "Shell Track：任务结束")
+                    .AddText(task.Request.Command ?? "交互会话")
+                    .AddText($"{task.Request.Shell} · {task.State} · 退出码 {task.ExitCode?.ToString() ?? "无"}")
+                    .BuildNotification();
+                AppNotificationManager.Default.Show(notification);
+                if (notification.Id == 0) throw new InvalidOperationException("Windows 未接受该通知。");
+                await Task.Delay(300);
+                bool inHistory = (await AppNotificationManager.Default.GetAllAsync()).Any(n => n.Id == notification.Id);
+                WriteNotification(root, notifyId, new("submitted", "Windows 已接受通知；弹窗显示由系统决定。", notification.Id, setting.ToString(), NotificationStateName(systemState), inHistory));
+                await Task.Delay(8000);
+            }
+            catch (Exception ex) { Environment.ExitCode = 1; WriteDiagnostic(root, "通知发送失败：" + ex); WriteNotification(root, notifyId, new("failed", ex.Message)); }
+            try { AppNotificationManager.Default.Unregister(); } catch (Exception ex) { WriteDiagnostic(root, ex.Message); }
+            Exit(); return;
+        }
+        var activation = AppInstance.GetCurrent().GetActivatedEventArgs();
+        if (activation.Kind == ExtendedActivationKind.AppNotification && activation.Data is AppNotificationActivatedEventArgs notificationArgs)
+        {
+            if (notificationArgs.Arguments.TryGetValue("dataRoot", out var notificationRoot)) root = notificationRoot;
+            if (notificationArgs.Arguments.TryGetValue("taskId", out var notificationTask)) showId = notificationTask;
+        }
+        string instanceRoot = Path.GetFullPath(root ?? ShellTrackClient.DefaultDataRoot).ToUpperInvariant();
+        instance = AppInstance.FindOrRegisterForKey("ShellTrack.UI." + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(instanceRoot))));
+        if (!instance.IsCurrent)
+        {
+            await instance.RedirectActivationToAsync(activation);
+            Exit(); return;
+        }
+        instance.Activated += (_, incoming) => dispatcher.TryEnqueue(() =>
+        {
+            string? task = null;
+            if (incoming.Kind == ExtendedActivationKind.AppNotification && incoming.Data is AppNotificationActivatedEventArgs notification)
+                notification.Arguments.TryGetValue("taskId", out task);
+            else if (incoming.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch)
+            {
+                var match = Regex.Match(launch.Arguments, @"--task\s+([a-fA-F0-9]{32})");
+                if (match.Success) task = match.Groups[1].Value;
+            }
+            Show(root, task);
+        });
+        Show(root, showId);
+    }
+    private void Show(string? root, string? id)
+    {
+        window ??= new MainWindow(root, id);
+        window.AppWindow.Show();
+        window.Activate();
+        if (id is not null) window.SelectTask(id);
+    }
+    private static void WriteDiagnostic(string? root, string message)
+    {
+        try
+        {
+            string directory = root ?? ShellTrackClient.DefaultDataRoot;
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(Path.Combine(directory, "desktop-errors.log"), DateTimeOffset.UtcNow + " " + message + "\n");
+        }
+        catch (IOException) { }
+    }
+    private static void LaunchViewer(string? root, string? id)
+    {
+        var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+        if (root is not null) { start.ArgumentList.Add("--data-dir"); start.ArgumentList.Add(root); }
+        if (id is not null) { start.ArgumentList.Add("--task"); start.ArgumentList.Add(id); }
+        using var child = Process.Start(start);
+    }
+    private static bool SameRoot(string? first, string? second) => string.Equals(
+        Path.GetFullPath(first ?? ShellTrackClient.DefaultDataRoot).TrimEnd(Path.DirectorySeparatorChar),
+        Path.GetFullPath(second ?? ShellTrackClient.DefaultDataRoot).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+    private static void UpdateActivationPath()
+    {
+        // The SDK reuses a COM activator for a fixed AUMID. Keep its launch path
+        // current when a portable build moves, without clearing notification history.
+        using var identity = Registry.CurrentUser.OpenSubKey(@"Software\Classes\AppUserModelId\ShellTrack.Desktop");
+        if (identity?.GetValue("CustomActivator") is not string value || !Guid.TryParse(value, out var activator)) return;
+        using var server = Registry.CurrentUser.OpenSubKey(@"Software\Classes\CLSID\" + activator.ToString("B") + @"\LocalServer32", writable: true);
+        server?.SetValue("", "\"" + Environment.ProcessPath + "\" ----AppNotificationActivated:", RegistryValueKind.ExpandString);
+    }
+    private static void WriteNotification(string? root, string id, NotificationResult result)
+    {
+        string directory = Path.Combine(root ?? ShellTrackClient.DefaultDataRoot, "notifications");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, id + ".json");
+        File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(result, Protocol.Json));
+        File.Move(path + ".tmp", path, true);
+    }
+    private static string NotificationStateName(int state) => state switch
+    {
+        1 => "notPresent", 2 => "busy", 3 => "fullScreenGame", 4 => "presentation", 5 => "acceptsNotifications", 6 => "quietTime", 7 => "app", _ => "unknown"
+    };
+    [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
+}

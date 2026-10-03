@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ShellTrack.Core/ShellTrack.Core.csproj" />
+    <Project Path="src/ShellTrack.Contracts/ShellTrack.Contracts.csproj" />
+    <Project Path="src/ShellTrack.Client/ShellTrack.Client.csproj" />
+    <Project Path="src/ShellTrack.Desktop/ShellTrack.Desktop.csproj" />
+  </Folder>
+</Solution>
