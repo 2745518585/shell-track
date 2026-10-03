@@ -33,6 +33,7 @@ jobs:
       msix_version: ${{ steps.version.outputs.msix_version }}
       commit: ${{ steps.version.outputs.commit }}
       publish: ${{ steps.version.outputs.publish }}
+      test_draft: ${{ steps.version.outputs.test_draft }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,15 +60,17 @@ jobs:
             $version = ./scripts/release-version.ps1 -Tag "v$($fixture.version)"
             $commit = git rev-parse --verify HEAD
             $publish = 'false'
+            $testDraft = if ($fixture.testDraft -eq $true) { 'true' } else { 'false' }
           } else {
             $version = ./scripts/release-version.ps1 -Tag $env:RELEASE_TAG
             $commit = git rev-parse --verify "refs/tags/$($version.tag)^{commit}"
             if ($LASTEXITCODE -ne 0) { throw 'The version tag must already exist.' }
             $publish = if ($env:PUBLISH_REQUESTED -eq 'true') { 'true' } else { 'false' }
+            $testDraft = 'false'
           }
           git merge-base --is-ancestor $commit "origin/$env:DEFAULT_BRANCH"
           if ($LASTEXITCODE -ne 0) { throw 'Only commits merged into the default branch can be released.' }
-          @("tag=$($version.tag)", "version=$($version.version)", "msix_version=$($version.msixVersion)", "commit=$commit", "publish=$publish") |
+          @("tag=$($version.tag)", "version=$($version.version)", "msix_version=$($version.msixVersion)", "commit=$commit", "publish=$publish", "test_draft=$testDraft") |
             Add-Content -LiteralPath $env:GITHUB_OUTPUT
 
   build:
@@ -189,6 +192,39 @@ jobs:
           while read -r _ filename; do
             gh attestation verify "artifacts/release/$filename" --repo "$GH_REPO" --signer-workflow "$GH_REPO/.github/workflows/release.yml" --deny-self-hosted-runners
           done < artifacts/release/SHA256SUMS.txt
+
+  test-draft:
+    needs: [validate, build, verify]
+    if: needs.validate.outputs.test_draft == 'true' && needs.validate.outputs.publish == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      TEST_TAG: release-test-${{ github.run_id }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.validate.outputs.tag }}
+          path: artifacts/release
+      - name: Upload a private draft and verify release asset downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.dryRun' artifacts/release/release.json)" = true
+          echo "Release workflow test for commit $RELEASE_COMMIT. These are dry-run artifacts; this draft is retained for inspection." > "$RUNNER_TEMP/draft-notes.md"
+          gh release create "$TEST_TAG" artifacts/release/* --target "$RELEASE_COMMIT" --draft --prerelease --latest=false --title "Release workflow test ($GITHUB_RUN_ID)" --notes-file "$RUNNER_TEMP/draft-notes.md"
+          gh release download "$TEST_TAG" --dir "$RUNNER_TEMP/downloaded-release"
+          cmp artifacts/release/SHA256SUMS.txt "$RUNNER_TEMP/downloaded-release/SHA256SUMS.txt"
+          (cd "$RUNNER_TEMP/downloaded-release" && sha256sum --check SHA256SUMS.txt)
+          release_info=$(gh release view "$TEST_TAG" --json isDraft,url)
+          test "$(echo "$release_info" | jq -r .isDraft)" = true
+          draft_url=$(echo "$release_info" | jq -r .url)
+          echo "Verified draft release: $draft_url"
+          echo "Verified draft release: $draft_url" >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     needs: [validate, build, verify]
