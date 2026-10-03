@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>shelltrack-cmd</AssemblyName>
+    <DefineConstants>$(DefineConstants);WRAP_CMD</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../ShellTrack.Cli/Program.cs" Link="Program.cs" />
+    <Compile Include="../ShellTrack.Cli/ShellCommandLine.cs" Link="ShellCommandLine.cs" />
+    <ProjectReference Include="../ShellTrack.Client/ShellTrack.Client.csproj" />
+    <ProjectReference Include="../ShellTrack.Windows/ShellTrack.Windows.csproj" />
+  </ItemGroup>
+</Project>

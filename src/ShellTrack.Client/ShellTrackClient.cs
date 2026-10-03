@@ -86,6 +86,7 @@ public sealed class ShellTrackClient : IDisposable
     }
 
     public Task<SessionInfo[]> ListAsync(int skip = 0, int take = 1000, CancellationToken cancellation = default) => Read<SessionInfo[]>($"/v1/tasks?skip={skip}&take={take}", cancellation);
+    public Task<HealthInfo> HealthAsync(CancellationToken cancellation = default) => Read<HealthInfo>("/v1/health", cancellation);
     public Task<SessionInfo> GetAsync(string id, CancellationToken cancellation = default) => Read<SessionInfo>($"/v1/tasks/{Uri.EscapeDataString(id)}", cancellation);
     public Task<OutputPage> OutputAsync(string id, long offset, CancellationToken cancellation = default) => Read<OutputPage>($"/v1/tasks/{Uri.EscapeDataString(id)}/output?offset={offset}", cancellation);
     public async Task<SessionInfo> CreateAsync(CreateSessionRequest request, CancellationToken cancellation = default)

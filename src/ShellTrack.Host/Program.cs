@@ -70,7 +70,7 @@ using (instanceLock)
             await Error(context, status, status == 500 ? "internal_error" : "invalid_request", status == 500 ? "后台请求失败。" : ex.Message, requestId);
         }
     });
-    app.MapGet("/v1/health", () => new HealthInfo(hostId, 1, "0.1.0"));
+    app.MapGet("/v1/health", () => new HealthInfo(hostId, 1, "0.2.0", SupportsRawArguments: true));
     app.MapGet("/v1/tasks", (int? skip, int? take) =>
     {
         if ((skip ?? 0) < 0 || (take ?? 100) is < 1 or > 1000) throw new ArgumentException("分页参数无效。");

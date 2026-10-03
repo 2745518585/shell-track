@@ -10,6 +10,27 @@ catch (Exception ex) { Console.Error.WriteLine($"shelltrack: {ex.Message}"); ret
 
 static async Task<int> Run(string[] arguments)
 {
+#if WRAP_PWSH || WRAP_POWERSHELL || WRAP_CMD
+#if WRAP_PWSH
+    const string wrappedShell = "pwsh";
+#elif WRAP_POWERSHELL
+    const string wrappedShell = "powershell";
+#else
+    const string wrappedShell = "cmd";
+#endif
+    using var client = await ShellTrackClient.ConnectAsync(allowTerminal: true);
+    if (!(await client.HealthAsync()).SupportsRawArguments)
+        throw new InvalidOperationException("当前后台版本不支持 shell 参数透传，请结束旧后台后重试。");
+    client.OutputGap += (from, to) => Console.Error.WriteLine($"\n[shelltrack: 输出 {from}..{to} 已超出记录与实时缓冲范围]");
+    var size = Size();
+    var session = await client.CreateAsync(new CreateSessionRequest
+    {
+        Shell = wrappedShell, RawArguments = ShellCommandLine.Arguments(),
+        WorkingDirectory = Environment.CurrentDirectory, Columns = size.Columns, Rows = size.Rows,
+        DisconnectPolicy = DisconnectPolicy.Terminate
+    });
+    return await RunSession(client, session, false, size);
+#else
     string? dataRoot = null, command = null, outputFile = null;
     string shell = "pwsh", cwd = Environment.CurrentDirectory, action = "run";
     string? id = null;
@@ -65,7 +86,7 @@ static async Task<int> Run(string[] arguments)
         case "list":
             var sessions = await client.ListAllAsync();
             if (json) Console.WriteLine(JsonSerializer.Serialize(sessions, Protocol.Json));
-            else foreach (var s in sessions) Console.WriteLine($"{s.Id}  {s.State,-11} {s.ExitCode,4}  {s.Request.Shell}  {s.Request.Command ?? "交互会话"}");
+            else foreach (var s in sessions) Console.WriteLine($"{s.Id}  {s.State,-11} {s.ExitCode,4}  {s.Request.Shell}  {s.Request.Command ?? (string.IsNullOrEmpty(s.Request.RawArguments) ? "交互会话" : s.Request.RawArguments)}");
             return 0;
         case "stop": Console.WriteLine((await client.TerminateAsync(id!)).State); return 0;
         case "delete": await client.DeleteAsync(id!); return 0;
@@ -94,6 +115,12 @@ static async Task<int> Run(string[] arguments)
     });
     if (session.State == SessionState.Failed) throw new InvalidOperationException(session.Error);
     if (detach) { Console.WriteLine(session.Id); return 0; }
+    return await RunSession(client, session, command is null && !keep, size);
+#endif
+}
+static async Task<int> RunSession(ShellTrackClient client, SessionInfo session, bool terminateOnInputEnd, (int Columns, int Rows) size)
+{
+    if (session.State == SessionState.Failed) throw new InvalidOperationException(session.Error);
     using var cancellation = new CancellationTokenSource();
     ClientWebSocket? socket = null;
     using var consoleMode = new ConsoleModeScope();
@@ -121,7 +148,7 @@ static async Task<int> Run(string[] arguments)
                         try { await inputSocket.SendAsync(buffer.AsMemory(0, count), WebSocketMessageType.Binary, true, cancellation.Token); }
                         finally { sendGate.Release(); }
                     }
-                    if (command is null && !keep) await client.TerminateAsync(session.Id);
+                    if (terminateOnInputEnd) await client.TerminateAsync(session.Id);
                 }
                 catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or IOException or ObjectDisposedException) { }
             });

@@ -72,7 +72,7 @@ public partial class App : Application
                     .AddArgument("taskId", task.Id)
                     .AddArgument("dataRoot", client.DataRoot)
                     .AddText(task.ExitCode == 0 ? "Shell Track：执行完成" : "Shell Track：任务结束")
-                    .AddText(task.Request.Command ?? "交互会话")
+                    .AddText(task.Request.Command ?? (string.IsNullOrEmpty(task.Request.RawArguments) ? "交互会话" : task.Request.RawArguments))
                     .AddText($"{task.Request.Shell} · {task.State} · 退出码 {task.ExitCode?.ToString() ?? "无"}")
                     .BuildNotification();
                 AppNotificationManager.Default.Show(notification);

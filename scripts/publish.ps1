@@ -17,6 +17,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Host publish failed.' }
         dotnet publish src/ShellTrack.Cli --configuration Release --runtime win-x64 --self-contained false --output $bundleRoot --nologo
         if ($LASTEXITCODE -ne 0) { throw 'CLI publish failed.' }
+        foreach ($wrapper in @('ShellTrack.Pwsh', 'ShellTrack.PowerShell', 'ShellTrack.Cmd')) {
+            dotnet publish (Join-Path 'src' $wrapper) --configuration Release --runtime win-x64 --self-contained false --output $bundleRoot --nologo
+            if ($LASTEXITCODE -ne 0) { throw "$wrapper publish failed." }
+        }
         if (-not $CoreOnly) {
             dotnet publish src/ShellTrack.Desktop --configuration Release --runtime win-x64 --self-contained false --output (Join-Path $bundleRoot 'desktop') --nologo
             if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }

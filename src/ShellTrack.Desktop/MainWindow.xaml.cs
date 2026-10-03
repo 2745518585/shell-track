@@ -29,11 +29,13 @@ public partial class MainWindow : Window
     private string? selectedId, pendingId;
     private TextLog? selectedLog;
     private sealed record Preferences(bool DetailsVisible = true, bool FollowOutput = true);
+    private static string TaskTitle(CreateSessionRequest request) => request.Command ??
+        (string.IsNullOrEmpty(request.RawArguments) ? request.Shell + " · 交互会话" : request.Shell + " " + request.RawArguments);
 
     private sealed class TaskRow(SessionInfo initial) : INotifyPropertyChanged
     {
         public SessionInfo Session { get; private set; } = initial;
-        public string Title => Session.Request.Command ?? Session.Request.Shell + " · 交互会话";
+        public string Title => TaskTitle(Session.Request);
         public string Subtitle => $"{StateName(Session.State)} · {Session.StartedAt.LocalDateTime:MM-dd HH:mm:ss}" + (Session.ExitCode is null ? "" : $" · 退出码 {Session.ExitCode}");
         public string Preview => string.IsNullOrWhiteSpace(Session.LatestOutputLine) ? (Session.IsFinished ? "没有可显示的输出" : "等待输出…") : Session.LatestOutputLine;
         public string NotificationLabel => Session.Request.Notify ? "完成通知已开启" : "完成通知已关闭";
@@ -118,7 +120,7 @@ public partial class MainWindow : Window
     };
     private void UpdateDetails(SessionInfo s)
     {
-        LogTitle.Text = DetailTitle.Text = s.Request.Command ?? s.Request.Shell + " · 交互会话";
+        LogTitle.Text = DetailTitle.Text = TaskTitle(s.Request);
         LogSummary.Text = $"{StateName(s.State)} · {s.Request.Shell}" + (s.ExitCode is null ? "" : $" · 退出码 {s.ExitCode}") + (s.OutputTruncated ? " · 历史输出不完整" : "");
         DetailStatus.Text = $"{StateName(s.State)}\n\n开始  {s.StartedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss}" + (s.EndedAt is null ? "" : $"\n结束  {s.EndedAt.Value.LocalDateTime:yyyy-MM-dd HH:mm:ss}") + $"\n退出码  {s.ExitCode?.ToString() ?? "—"}\n输出  {s.OutputLength:N0} 字节\n保存  {s.RecordedLength:N0} 字节\n\n工作目录\n{s.Request.WorkingDirectory}\n\n任务 ID\n{s.Id}" + (s.Error is null ? "" : "\n\n" + s.Error) + NotificationText(s);
         ActionsButton.IsEnabled = true;

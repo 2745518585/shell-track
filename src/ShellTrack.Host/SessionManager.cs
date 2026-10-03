@@ -382,6 +382,8 @@ public sealed class SessionManager : IDisposable
         if (string.IsNullOrWhiteSpace(request.RequestId) || request.RequestId.Length > 128) throw new ArgumentException("requestId 长度无效。");
         if (!Directory.Exists(request.WorkingDirectory)) throw new ArgumentException("工作目录不存在。");
         if (request.Command?.Length > 24000) throw new ArgumentException("命令过长。");
+        if (request.RawArguments?.Length > 32000 || request.RawArguments?.Contains('\0') == true) throw new ArgumentException("shell 参数过长或含无效字符。");
+        if (request.Command is not null && request.RawArguments is not null) throw new ArgumentException("command 与 rawArguments 不能同时指定。");
         if (string.IsNullOrWhiteSpace(request.Shell) || request.Command?.Contains('\0') == true) throw new ArgumentException("shell 或命令无效。");
         if (!Enum.IsDefined(request.DisconnectPolicy)) throw new ArgumentException("断开策略无效。");
         ValidateSize(request.Columns, request.Rows);
@@ -414,6 +416,11 @@ public sealed class SessionManager : IDisposable
             }
         }
         else throw new ArgumentException("当前支持 pwsh、powershell 和 cmd。");
+        if (request.RawArguments is not null)
+        {
+            arguments.Clear();
+            rawArguments = request.RawArguments;
+        }
         return new(executable, arguments, Path.GetFullPath(request.WorkingDirectory), request.Columns, request.Rows, rawArguments);
     }
     private static string FindOnPath(string name)

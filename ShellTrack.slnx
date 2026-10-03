@@ -6,6 +6,9 @@
     <Project Path="src/ShellTrack.Client/ShellTrack.Client.csproj" />
     <Project Path="src/ShellTrack.Host/ShellTrack.Host.csproj" />
     <Project Path="src/ShellTrack.Cli/ShellTrack.Cli.csproj" />
+    <Project Path="src/ShellTrack.Pwsh/ShellTrack.Pwsh.csproj" />
+    <Project Path="src/ShellTrack.PowerShell/ShellTrack.PowerShell.csproj" />
+    <Project Path="src/ShellTrack.Cmd/ShellTrack.Cmd.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ShellTrack.Integration/ShellTrack.Integration.csproj" />

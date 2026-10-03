@@ -59,7 +59,9 @@ Invoke-RestMethod "$baseUri/v1/tasks?skip=0&take=100" -Headers $readHeaders
 }
 ```
 
-`shell` 支持 `pwsh`、`powershell`、`cmd`，以及它们的 `.exe` 名称。没有 `command` 或值为 null 时是交互式会话。当前不支持自定义可执行文件、环境变量覆盖或任意 shell 参数。
+`shell` 支持 `pwsh`、`powershell`、`cmd`，以及它们的 `.exe` 名称。`command` 和 `rawArguments` 均为 null 时是普通交互式会话。
+
+可选字段 `rawArguments` 为 Windows 原始 shell 参数文本。非 null 时（包含空字符串）进入参数透传模式，不添加默认 shell 选项，也不将其解释为脚本；`command` 必须为 null。空字符串表示直接启动不带参数的 shell；`/D /S /C "echo hello"` 表示传入 cmd 的原始参数。该字段最多 32,000 个字符，不能含空字符。`GET /v1/health` 中 `supportsRawArguments: true` 表示后台支持此模式，旧后台没有该能力。原始参数属于创建请求幂等比较和持久化记录的一部分。目前仍不支持自定义可执行文件或环境变量覆盖。
 
 `requestId` 为客户端创建去重键，必须非空且不超过 128 个字符；建议使用 GUID。重试应保留同一个键和初始创建参数，参数冲突返回 409。初始参数单独保存，窗口修改当前通知开关不会破坏原始请求的幂等重试。工作目录必须存在，命令最长 24,000 个字符，尺寸范围为 1 至 1000。默认 shell 为 `pwsh`，尺寸 120 × 30，断开策略为 `Continue`，通知为 false。
 

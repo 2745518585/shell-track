@@ -153,6 +153,44 @@ try
     Check(cli.ExitCode == 7 && (await stdout).Contains("CLI_OK"), "CLI 真实输出与退出码透传");
     await stderr;
 
+    Check((await client.HealthAsync()).SupportsRawArguments, "后台明确声明原始 shell 参数能力");
+    await ExpectStatus(() => client.CreateAsync(Request("cmd", "echo invalid") with { RawArguments = "/C echo invalid" }), HttpStatusCode.BadRequest, "拒绝同时指定脚本与原始参数");
+    await ExpectStatus(() => client.CreateAsync(Request("cmd", null) with { RawArguments = "bad\0argument" }), HttpStatusCode.BadRequest, "拒绝原始参数中的空字符");
+    await ExpectStatus(() => client.CreateAsync(Request("cmd", null) with { RawArguments = new string('x', 32001) }), HttpStatusCode.BadRequest, "拒绝超过 Windows 命令行上限的参数");
+    foreach (var sample in new[]
+    {
+        (Project: "ShellTrack.Cmd", Name: "shelltrack-cmd", Shell: "cmd", Original: Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"), Arguments: "/D /S /C \"echo WRAPPER_CMD & echo \"quoted words\" & exit /b 11\""),
+        (Project: "ShellTrack.Pwsh", Name: "shelltrack-pwsh", Shell: "pwsh", Original: "pwsh", Arguments: "-NoLogo -NoProfile -Command \"[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); Write-Output '中文 WRAPPER_PWSH'; exit 13\""),
+        (Project: "ShellTrack.PowerShell", Name: "shelltrack-powershell", Shell: "powershell", Original: Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"), Arguments: "-NoLogo -NoProfile -Command \"Write-Output 'WRAPPER_POWERSHELL'; exit 17\"")
+    })
+    {
+        string wrapper = WrapperPath(sample.Project, sample.Name);
+        var original = await NativeCommand(sample.Original, sample.Arguments);
+        var wrapped = await NativeCommand(wrapper, sample.Arguments);
+        if (original.ExitCode != wrapped.ExitCode || Plain(original.Output).Trim() != Plain(wrapped.Output).Trim())
+            Console.Error.WriteLine(JsonSerializer.Serialize(new { sample.Shell, OriginalExit = original.ExitCode, WrappedExit = wrapped.ExitCode, OriginalOutput = Plain(original.Output), WrappedOutput = Plain(wrapped.Output) }));
+        Check(original.ExitCode == wrapped.ExitCode && Plain(original.Output).Trim() == Plain(wrapped.Output).Trim(), sample.Shell + " 包装入口与直接调用的输出和退出码一致");
+        var recorded = (await client.ListAllAsync()).First(s => s.Request.Shell == sample.Shell && s.Request.RawArguments == sample.Arguments);
+        Check(recorded.Request.Command is null && recorded.IsFinished && recorded.ExitCode == wrapped.ExitCode && recorded.Request.WorkingDirectory == Environment.CurrentDirectory,
+            sample.Shell + " 原始参数与工作目录进入任务记录");
+    }
+    string scriptDirectory = Path.Combine(root, "script 中文 space"); Directory.CreateDirectory(scriptDirectory);
+    string scriptFile = Path.Combine(scriptDirectory, "arguments.ps1");
+    await File.WriteAllTextAsync(scriptFile, "param($First, $Second, $Third)\n[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); Write-Output ('ARGS:[' + $First + '][' + $Second + '][' + $Third + ']'); exit 19", Encoding.UTF8);
+    string fileArguments = "-NoProfile -File \"" + scriptFile + "\" \"中文 hello world\" \"\" tail\\";
+    var directFile = await NativeCommand("pwsh", fileArguments);
+    var wrappedFile = await NativeCommand(WrapperPath("ShellTrack.Pwsh", "shelltrack-pwsh"), fileArguments);
+    Check(directFile.ExitCode == 19 && wrappedFile.ExitCode == 19 && Plain(directFile.Output).Trim() == Plain(wrappedFile.Output).Trim(), "-File 路径空格、中文、空参数和尾部反斜杠保持真实 shell 语义");
+    string encodedArguments = "-NoProfile -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Output 'ENCODED_WRAPPER'; exit 23"));
+    var encodedWrapper = await NativeCommand(WrapperPath("ShellTrack.Pwsh", "shelltrack-pwsh"), encodedArguments);
+    Check(encodedWrapper.ExitCode == 23 && Plain(encodedWrapper.Output).Contains("ENCODED_WRAPPER"), "包装入口透传 EncodedCommand");
+    var wrapperHelp = await NativeCommand(WrapperPath("ShellTrack.Pwsh", "shelltrack-pwsh"), "-h");
+    var originalHelp = await NativeCommand("pwsh", "-h");
+    Check(wrapperHelp.ExitCode == originalHelp.ExitCode && Plain(wrapperHelp.Output).Contains("-NoProfile") && !wrapperHelp.Output.Contains("Windows 终端代理"), "-h 由真实 shell 处理而非 Shell Track 帮助");
+    var interactiveWrapper = await NativeCommand(WrapperPath("ShellTrack.Cmd", "shelltrack-cmd"), "", "echo WRAPPER_INTERACTIVE\r\nexit /b 29\r\n");
+    Check(interactiveWrapper.ExitCode == 29 && Plain(interactiveWrapper.Output).Contains("WRAPPER_INTERACTIVE"), "无参数包装入口提供交互式输入和退出码");
+    Check((await client.ListAllAsync()).Any(s => s.Request.Shell == "cmd" && s.Request.RawArguments == "" && s.ExitCode == 29), "空参数与普通命令模式在记录中明确区分");
+
     var aliasHelp = await RunCli("-h");
     Check(aliasHelp.ExitCode == 0 && aliasHelp.Output.Contains("--detach -b") && aliasHelp.Output.Contains("ui|u"), "CLI 帮助包含选项与子命令简写");
     var aliasCreate = await RunCli("-d", root, "-s", "pwsh", "-c", "Write-Output 'ALIASES_OK'; Start-Sleep -Seconds 60", "-w", root, "-b", "-n", "-k");
@@ -298,5 +336,26 @@ async Task<(int ExitCode, string Output)> RunCli(params string[] arguments)
     finally { if (!process.HasExited) process.Kill(); }
     string errorText = await error;
     if (process.ExitCode == 125) throw new Exception("CLI 简写执行失败：" + errorText);
+    return (process.ExitCode, await output);
+}
+string WrapperPath(string project, string name) => Path.GetFullPath(Path.Combine("src", project, "bin", configuration, "net10.0-windows", name + ".exe"));
+// Compare visible lines: ConPTY is a terminal presentation stream and may omit
+// trailing blank screen cells that a directly redirected shell writes as spaces.
+string Plain(string value) { var log = new TextLog(); log.Append(Encoding.UTF8.GetBytes(value)); return string.Join('\n', log.ToString().Split('\n').Select(line => line.TrimEnd())); }
+async Task<(int ExitCode, string Output)> NativeCommand(string executable, string rawArguments, string? input = null)
+{
+    var start = new ProcessStartInfo(executable) { Arguments = rawArguments, UseShellExecute = false, CreateNoWindow = true,
+        RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
+        StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8, StandardInputEncoding = new UTF8Encoding(false) };
+    start.Environment["SHELLTRACK_DATA_DIR"] = root;
+    using var process = Process.Start(start)!;
+    var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
+    var error = process.StandardError.ReadToEndAsync(deadline.Token);
+    if (input is not null) await process.StandardInput.WriteAsync(input);
+    process.StandardInput.Close();
+    try { await process.WaitForExitAsync(deadline.Token); }
+    finally { if (!process.HasExited) process.Kill(); }
+    string errorText = await error;
+    if (process.ExitCode == 125) throw new Exception("包装入口执行失败：" + errorText);
     return (process.ExitCode, await output);
 }

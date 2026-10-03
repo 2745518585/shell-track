@@ -15,6 +15,8 @@ WinUI 窗口 ── 查询 / 管理 HTTP ────────┼── Host 
 
 Host 是当前用户的后台进程，按数据根目录单实例运行，不是 Windows 服务。CLI 和桌面客户端可以自动启动它；后台启动使用隐藏窗口。不同的数据根目录允许独立运行不同实例。
 
+`shelltrack-pwsh`、`shelltrack-powershell` 和 `shelltrack-cmd` 是三个独立编译的 shell 包装入口，复用 CLI 的终端转发流程，但没有 Shell Track 参数解析。入口读取 Windows 原始命令行，去掉自身可执行文件，将其余文本作为 `rawArguments` 提交给后台；后台直接作为 shell 参数启动，不添加普通命令模式的默认选项。原始参数与当前工作目录进入历史记录。
+
 | 项目 | 项目引用 | 职责 |
 |---|---|---|
 | Core | 无 | 终端接口、增量 UTF-8 与纯文本日志 |

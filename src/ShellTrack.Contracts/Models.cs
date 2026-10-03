@@ -19,6 +19,8 @@ public sealed record CreateSessionRequest
     public string RequestId { get; init; } = Guid.NewGuid().ToString("N");
     public string Shell { get; init; } = "pwsh";
     public string? Command { get; init; }
+    // Null uses Shell Track's command mode; empty means a shell with no arguments.
+    public string? RawArguments { get; init; }
     public string WorkingDirectory { get; init; } = Environment.CurrentDirectory;
     public int Columns { get; init; } = 120;
     public int Rows { get; init; } = 30;
@@ -50,7 +52,7 @@ public sealed record SessionInfo
 
 public sealed record OutputPage(string TaskId, string Offset, string NextOffset, string Data, bool Complete, bool Truncated, bool Gap = false);
 public sealed record ApiError(string Code, string Message, string RequestId);
-public sealed record HealthInfo(string HostId, int ProtocolVersion, string Version);
+public sealed record HealthInfo(string HostId, int ProtocolVersion, string Version, bool SupportsRawArguments = false);
 public sealed record HostConnection(int Port, string HostId, int ProcessId);
 public sealed record ClientCredentials(string Read, string Manage, string Terminal);
 public sealed record SessionEvent(string Kind, string TaskId, SessionInfo? Session = null);

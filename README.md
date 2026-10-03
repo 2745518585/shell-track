@@ -75,6 +75,32 @@ $taskId = .\shelltrack.exe -c 'Start-Sleep -Seconds 10' -b -n
 
 单次命令在客户端断开后继续执行。交互会话默认在输入客户端断开后终止，`--keep` 可改变这个策略。Shell Track 自身发生错误时 CLI 返回 `125`。
 
+## 直接替换 shell 可执行文件
+
+发布目录还提供三个独立编译的入口：
+
+| 原调用 | 替换后的入口 |
+|---|---|
+| `pwsh.exe` | `shelltrack-pwsh.exe` |
+| `powershell.exe` | `shelltrack-powershell.exe` |
+| `cmd.exe` | `shelltrack-cmd.exe` |
+
+仅替换可执行文件，后面的 shell 参数保持原样：
+
+```powershell
+.\shelltrack-pwsh.exe -NoProfile -Command 'Write-Output "hello"; exit 7'
+.\shelltrack-pwsh.exe -NoProfile -File '.\scripts\my task.ps1' 'hello world'
+.\shelltrack-powershell.exe -NoProfile -Command 'Get-Date'
+.\shelltrack-cmd.exe /D /S /C 'echo hello & exit /b 3'
+.\shelltrack-pwsh.exe   # 不带参数时进入真实 shell 的交互模式
+```
+
+包装入口不解析 Shell Track 选项，`-h`、`--help`、`-c` 等均由实际 shell 处理；不额外添加 `-NoProfile`、`-NoLogo`、`/D` 或命令包装。Windows 原始命令行中可执行文件之后的参数文本直接传给 shell，当前工作目录同时传入，执行结束返回真实退出码。任务照常记录在后台，窗口也会显示原始参数。
+
+数据目录使用 `SHELLTRACK_DATA_DIR` 或默认目录，包装入口没有 `--data-dir`、通知或后台执行选项。包装进程断开时终止它的任务。请保留发布目录中的依赖文件，不要将包装入口重命名为实际 shell 的名称放入 PATH，以免影响真实 shell 的查找。若已有旧版后台运行，先用旧版 `shelltrack shutdown` 结束后台后再使用新入口；包装入口会检测后台是否支持原始参数。
+
+这些入口仍使用 ConPTY 代理，并非完全透明的进程替身：stdout/stderr 合并且输出带终端控制序列，输入管道关闭不会映射为 shell 的标准输入 EOF；自动化程序需要精确区分输出通道或依赖 EOF 时应继续直接调用原 shell。子进程使用后台进程的环境变量，调用者临时修改的环境不会单独同步。
+
 ## 构建、测试和发布
 
 开发使用 .NET 10 SDK 和 PowerShell 7。仓库 `global.json` 的起始版本是 `10.0.103`，允许使用后续 .NET 10 feature band。已验证环境为 Windows 11 x64、Visual Studio 2022 和 Windows SDK。WinUI 编译需要 Windows；纯核心解决方案不包含桌面项目。
@@ -134,6 +160,9 @@ src/
   ShellTrack.Client/             共用客户端、发现、认证与输出跟随
   ShellTrack.Host/               本地 API、任务编排、持久化、通知调度
   ShellTrack.Cli/                命令入口、终端转发和退出码
+  ShellTrack.Pwsh/               pwsh 参数透传入口
+  ShellTrack.PowerShell/         Windows PowerShell 参数透传入口
+  ShellTrack.Cmd/                cmd 参数透传入口
   ShellTrack.Desktop/            原生只读查看器、托盘和通知辅助入口
 tests/                          核心日志与 Windows 进程集成检查
 scripts/                        构建、测试、发布

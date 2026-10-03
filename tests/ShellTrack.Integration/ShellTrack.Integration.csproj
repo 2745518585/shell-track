@@ -8,5 +8,8 @@
     <ProjectReference Include="../../src/ShellTrack.Core/ShellTrack.Core.csproj" />
     <ProjectReference Include="../../src/ShellTrack.Host/ShellTrack.Host.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../src/ShellTrack.Cli/ShellTrack.Cli.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/ShellTrack.Pwsh/ShellTrack.Pwsh.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/ShellTrack.PowerShell/ShellTrack.PowerShell.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/ShellTrack.Cmd/ShellTrack.Cmd.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>
