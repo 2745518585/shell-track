@@ -50,18 +50,28 @@ $taskId = .\shelltrack.exe --command 'Start-Sleep -Seconds 10; Write-Output "完
 
 | 命令或选项 | 行为 |
 |---|---|
-| `--shell pwsh\|powershell\|cmd` | 选择 shell |
-| `--command <script>`、`-c <script>` | 执行单次命令；没有该选项时进入交互模式 |
-| `--cwd <path>` | 指定任务工作目录 |
-| `--detach` | 单次命令在后台运行，立即返回任务 ID |
-| `--keep` | 交互 CLI 断开后保留 shell；目前没有 CLI 重新接管输入的命令 |
-| `--notify` | 请求任务结束后发送 Windows 通知 |
-| `--data-dir <path>` | 使用独立的数据目录与后台实例 |
-| `list --json` | 输出结构化任务列表 |
-| `stop <taskId>` | 终止该任务及其所属进程 |
-| `delete <taskId>` | 删除已结束任务与记录；运行中任务不能删除 |
-| `shutdown` | 关闭该数据目录的后台，并终止它拥有的所有运行任务 |
-| `--help` | 查看完整命令帮助 |
+| `--shell` / `-s` `pwsh\|powershell\|cmd` | 选择 shell |
+| `--command` / `-c` `<script>` | 执行单次命令；没有该选项时进入交互模式 |
+| `--cwd` / `-w` `<path>` | 指定任务工作目录 |
+| `--detach` / `-b` | 单次命令在后台运行，立即返回任务 ID |
+| `--keep` / `-k` | 交互 CLI 断开后保留 shell；目前没有 CLI 重新接管输入的命令 |
+| `--notify` / `-n` | 请求任务结束后发送 Windows 通知 |
+| `--data-dir` / `-d` `<path>` | 使用独立的数据目录与后台实例 |
+| `--json` / `-j` | `list` 输出结构化任务列表 |
+| `--output` / `-o` `<file>` | 指定 `export` 的导出路径 |
+| `--help` / `-h` | 查看完整命令帮助 |
+
+子命令也支持简写：`list` → `ls`、`show` → `sh`、`stop` → `st`、`delete` → `rm`、`export` → `ex`、`ui` → `u`、`shutdown` → `sd`。`stop` 终止任务及其所属进程；`delete` 只能删除已结束任务；`shutdown` 关闭当前数据目录的后台及其所有运行任务。
+
+```powershell
+.\shelltrack.exe -s cmd -c 'echo Hello' -w .
+$taskId = .\shelltrack.exe -c 'Start-Sleep -Seconds 10' -b -n
+.\shelltrack.exe ls -j
+.\shelltrack.exe ex $taskId -o .\output.bin
+.\shelltrack.exe u
+```
+
+长选项和简写可以混用，每个选项单独书写，例如 `-b -n`。当前不支持 `-bn` 合并或 `-s=cmd` 写法。直接启动后台时支持 `--data-dir/-d`、`--quiet/-q`、`--output-limit/-l` 和 `--help/-h`；直接启动窗口时支持 `--data-dir/-d`、`--task/-t`，通知辅助入口 `--notify/-n` 需要任务 ID。
 
 单次命令在客户端断开后继续执行。交互会话默认在输入客户端断开后终止，`--keep` 可改变这个策略。Shell Track 自身发生错误时 CLI 返回 `125`。
 

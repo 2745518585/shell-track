@@ -22,28 +22,35 @@ static async Task<int> Run(string[] arguments)
             case "-h": case "--help":
                 Console.WriteLine("""
                     Shell Track — Windows 终端代理
-                    shelltrack [--shell pwsh|cmd|powershell] [--command <script>] [--notify] [--detach] [--keep]
-                    shelltrack list [--json]
-                    shelltrack show|stop|delete <taskId>
-                    shelltrack export <taskId> --output <file>
-                    shelltrack ui
-                    shelltrack shutdown    结束后台及其所有运行任务
-                    通用选项：--data-dir <path>  --cwd <path>
+                    shelltrack [-s pwsh|cmd|powershell] [-c <script>] [-n] [-b] [-k]
+                    shelltrack list|ls [-j]
+                    shelltrack show|sh、stop|st、delete|rm <taskId>
+                    shelltrack export|ex <taskId> -o <file>
+                    shelltrack ui|u
+                    shelltrack shutdown|sd    结束后台及其所有运行任务
+                    --shell -s <shell>   --command -c <script>   --cwd -w <path>
+                    --data-dir -d <path>   --output -o <file>   --json -j
+                    --notify -n   --detach -b   --keep -k   --help -h
                     --detach 仅用于单次命令；--keep 保留断开后的交互会话。
                     """);
                 return 0;
-            case "--data-dir": dataRoot = Value(); break;
-            case "--shell": shell = Value(); break;
+            case "--data-dir": case "-d": dataRoot = Value(); break;
+            case "--shell": case "-s": shell = Value(); break;
             case "--command": case "-c": command = Value(); break;
-            case "--cwd": cwd = Path.GetFullPath(Value()); break;
-            case "--output": outputFile = Value(); break;
-            case "--notify": notify = true; break;
-            case "--detach": detach = true; break;
-            case "--keep": keep = true; break;
-            case "--json": json = true; break;
+            case "--cwd": case "-w": cwd = Path.GetFullPath(Value()); break;
+            case "--output": case "-o": outputFile = Value(); break;
+            case "--notify": case "-n": notify = true; break;
+            case "--detach": case "-b": detach = true; break;
+            case "--keep": case "-k": keep = true; break;
+            case "--json": case "-j": json = true; break;
+            case "ls": case "sh": case "st": case "rm": case "ex": case "u": case "sd":
             case "list": case "show": case "stop": case "delete": case "export": case "ui": case "shutdown":
                 if (action != "run") throw new ArgumentException("只能指定一个子命令。");
-                action = arguments[i];
+                action = arguments[i] switch
+                {
+                    "ls" => "list", "sh" => "show", "st" => "stop", "rm" => "delete",
+                    "ex" => "export", "u" => "ui", "sd" => "shutdown", _ => arguments[i]
+                };
                 if (action is "show" or "stop" or "delete" or "export") id = Value();
                 break;
             default: throw new ArgumentException($"未知参数：{arguments[i]}");

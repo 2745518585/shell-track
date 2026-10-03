@@ -153,6 +153,25 @@ try
     Check(cli.ExitCode == 7 && (await stdout).Contains("CLI_OK"), "CLI 真实输出与退出码透传");
     await stderr;
 
+    var aliasHelp = await RunCli("-h");
+    Check(aliasHelp.ExitCode == 0 && aliasHelp.Output.Contains("--detach -b") && aliasHelp.Output.Contains("ui|u"), "CLI 帮助包含选项与子命令简写");
+    var aliasCreate = await RunCli("-d", root, "-s", "pwsh", "-c", "Write-Output 'ALIASES_OK'; Start-Sleep -Seconds 60", "-w", root, "-b", "-n", "-k");
+    string aliasId = aliasCreate.Output.Trim();
+    var aliasInfo = await client.GetAsync(aliasId);
+    Check(aliasCreate.ExitCode == 0 && aliasInfo.Request.Shell == "pwsh" && aliasInfo.Request.WorkingDirectory == root && aliasInfo.Request.Notify && aliasInfo.Request.DisconnectPolicy == DisconnectPolicy.Continue,
+        "短选项指定数据目录、shell、命令、工作目录、后台执行、通知与保留会话");
+    await client.SetNotificationAsync(aliasId, false, deadline.Token);
+    while ((await client.GetAsync(aliasId)).LatestOutputLine?.Contains("ALIASES_OK") != true) await Task.Delay(50, deadline.Token);
+    var aliasList = await RunCli("-d", root, "ls", "-j");
+    Check(aliasList.ExitCode == 0 && JsonSerializer.Deserialize<SessionInfo[]>(aliasList.Output, Protocol.Json)!.Any(s => s.Id == aliasId), "ls -j 返回结构化任务列表");
+    Check((await RunCli("-d", root, "st", aliasId)).ExitCode == 0, "st 终止任务");
+    var aliasShow = await RunCli("-d", root, "sh", aliasId);
+    Check(aliasShow.ExitCode == 0 && aliasShow.Output.Contains("ALIASES_OK"), "sh 查看原始输出");
+    string aliasExport = Path.Combine(root, "alias-output.bin");
+    Check((await RunCli("-d", root, "ex", aliasId, "-o", aliasExport)).ExitCode == 0 && File.ReadAllText(aliasExport).Contains("ALIASES_OK"), "ex -o 导出输出");
+    Check((await RunCli("-d", root, "rm", aliasId)).ExitCode == 0, "rm 删除已结束任务");
+    await ExpectStatus(() => client.GetAsync(aliasId), HttpStatusCode.NotFound, "简写删除后任务不存在");
+
     string autoRoot = Path.Combine(root, "autostart 中文 space");
     string executablePath = Path.ChangeExtension(cliPath, ".exe");
     string captureScript = "$ErrorActionPreference = 'Stop'\n" +
@@ -162,7 +181,7 @@ try
         "$captured = & $cli --data-dir $data --shell cmd --command 'echo AUTOSTART_CAPTURE_OK & exit /b 7'\n" +
         "[IO.File]::WriteAllText($data + '.phase', 'after capture')\n" +
         "if ($LASTEXITCODE -ne 7 -or ($captured -join '') -notmatch 'AUTOSTART_CAPTURE_OK') { throw 'capture failed' }\n" +
-        "& $cli --data-dir $data shutdown\n" +
+        "& $cli -d $data sd\n" +
         "[IO.File]::WriteAllText($data + '.phase', 'after shutdown')\n" +
         "Write-Output 'AUTOSTART_DONE'\n";
     var captureStart = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
@@ -230,7 +249,7 @@ Process StartHost()
 {
     var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
     string hostPath = Path.GetFullPath(Path.Combine("src", "ShellTrack.Host", "bin", configuration, "net10.0-windows", "ShellTrack.Host.dll"));
-    foreach (string value in new[] { hostPath, "--data-dir", root, "--output-limit", "65536" }) start.ArgumentList.Add(value);
+    foreach (string value in new[] { hostPath, "-d", root, "-l", "65536" }) start.ArgumentList.Add(value);
     var process = Process.Start(start)!;
     int generation = ++hostGeneration;
     hostOutput = SaveHostLog(process.StandardOutput, Path.Combine(root, $"host-{generation}-stdout.log"));
@@ -266,4 +285,18 @@ async Task ExpectStatus(Func<Task> action, HttpStatusCode status, string label)
 {
     try { await action(); } catch (HttpRequestException ex) when (ex.StatusCode == status) { Check(true, label); return; }
     throw new Exception("FAIL: " + label);
+}
+async Task<(int ExitCode, string Output)> RunCli(params string[] arguments)
+{
+    var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+    start.ArgumentList.Add(Path.GetFullPath(Path.Combine("src", "ShellTrack.Cli", "bin", configuration, "net10.0-windows", "shelltrack.dll")));
+    foreach (string argument in arguments) start.ArgumentList.Add(argument);
+    using var process = Process.Start(start)!;
+    var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
+    var error = process.StandardError.ReadToEndAsync(deadline.Token);
+    try { await process.WaitForExitAsync(deadline.Token); }
+    finally { if (!process.HasExited) process.Kill(); }
+    string errorText = await error;
+    if (process.ExitCode == 125) throw new Exception("CLI 简写执行失败：" + errorText);
+    return (process.ExitCode, await output);
 }

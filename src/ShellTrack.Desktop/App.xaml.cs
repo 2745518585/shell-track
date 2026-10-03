@@ -34,9 +34,9 @@ public partial class App : Application
         var arguments = Environment.GetCommandLineArgs();
         for (int i = 1; i < arguments.Length; i++)
         {
-            if (arguments[i] == "--data-dir" && i + 1 < arguments.Length) root = arguments[++i];
-            else if (arguments[i] == "--notify" && i + 1 < arguments.Length) notifyId = arguments[++i];
-            else if (arguments[i] == "--task" && i + 1 < arguments.Length) showId = arguments[++i];
+            if (arguments[i] is "--data-dir" or "-d" && i + 1 < arguments.Length) root = arguments[++i];
+            else if (arguments[i] is "--notify" or "-n" && i + 1 < arguments.Length) notifyId = arguments[++i];
+            else if (arguments[i] is "--task" or "-t" && i + 1 < arguments.Length) showId = arguments[++i];
         }
         try
         {

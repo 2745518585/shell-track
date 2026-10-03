@@ -11,10 +11,14 @@ bool quiet = false;
 long outputLimit = SessionManager.OutputLimit;
 for (int i = 0; i < args.Length; i++)
 {
-    if (args[i] == "--data-dir" && i + 1 < args.Length) dataRoot = Path.GetFullPath(args[++i]);
-    else if (args[i] == "--quiet") quiet = true;
-    else if (args[i] == "--output-limit" && i + 1 < args.Length && long.TryParse(args[++i], out var requested) && requested is >= 1024 and <= 536870912) outputLimit = requested;
-    else { Console.Error.WriteLine("使用方式：ShellTrack.Host [--data-dir <path>]"); return 2; }
+    if (args[i] is "--data-dir" or "-d" && i + 1 < args.Length) dataRoot = Path.GetFullPath(args[++i]);
+    else if (args[i] is "--quiet" or "-q") quiet = true;
+    else if (args[i] is "--output-limit" or "-l" && i + 1 < args.Length && long.TryParse(args[++i], out var requested) && requested is >= 1024 and <= 536870912) outputLimit = requested;
+    else if (args[i] is "--help" or "-h")
+    {
+        Console.WriteLine("ShellTrack.Host [--data-dir|-d <path>] [--quiet|-q] [--output-limit|-l <bytes>]"); return 0;
+    }
+    else { Console.Error.WriteLine("使用 --help 或 -h 查看选项。"); return 2; }
 }
 HostFiles.SecureDirectory(dataRoot);
 FileStream instanceLock;
