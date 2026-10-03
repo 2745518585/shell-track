@@ -94,7 +94,8 @@ begin
   if WizardIsTaskSelected('userpath') then begin
     if not RegQueryStringValue(HKCU, 'Environment', 'Path', Value) then Value := '';
     if not HasPath(Value, Directory) then begin
-      if (Value <> '') and (Value[Length(Value)] <> ';') then Value := Value + ';';
+      { Always add our own delimiter: an existing trailing delimiter belongs to the user. }
+      if Value <> '' then Value := Value + ';';
       RegWriteExpandStringValue(HKCU, 'Environment', 'Path', Value + Directory);
       RegWriteStringValue(HKCU, OwnershipKey, 'AddedPath', Directory);
     end;

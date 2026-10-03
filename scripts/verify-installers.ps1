@@ -81,7 +81,10 @@ try {
         if ($uninstall.ExitCode -ne 0) { throw 'EXE uninstall failed.' }
     }
 }
-if ((Read-UserPath) -ne $originalPath -or (Test-Path -LiteralPath $cli) -or (Test-Path -LiteralPath $uninstallKey)) { throw 'EXE uninstall did not restore PATH and remove the installation.' }
+$restoredPath = Read-UserPath
+if ($restoredPath -ne $originalPath) { throw "EXE uninstall changed user PATH (expected length $($originalPath.Length), actual $($restoredPath.Length); expected trailing separator $($originalPath.EndsWith(';')), actual $($restoredPath.EndsWith(';')))." }
+if (Test-Path -LiteralPath $cli) { throw 'EXE uninstall left the CLI executable installed.' }
+if (Test-Path -LiteralPath $uninstallKey) { throw 'EXE uninstall left its registry entry.' }
 if (-not (Test-Path -LiteralPath (Join-Path $dataRoot 'sessions'))) { throw 'Uninstall deleted task records.' }
 Write-Host 'PASS: EXE uninstall restores user PATH and retains task records.'
 

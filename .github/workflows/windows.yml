@@ -92,7 +92,7 @@ jobs:
         run: ./scripts/verify-installers.ps1 -InstallerDirectory artifacts/ci-installers
       - name: Build and verify portable ZIP and release attachment set
         run: |
-          ./scripts/create-release-assets.ps1 -Tag "v$env:CI_PACKAGE_VERSION" -Commit $env:CI_COMMIT -BundleDirectory artifacts/ci-win-x64 -InstallerDirectory artifacts/ci-installers -OutputDirectory artifacts/ci-release-assets
+          ./scripts/create-release-assets.ps1 -Tag "v$env:CI_PACKAGE_VERSION" -Commit $env:CI_COMMIT -BundleDirectory artifacts/ci-win-x64 -InstallerDirectory artifacts/ci-installers -OutputDirectory artifacts/ci-release-assets -DryRun
           ./scripts/verify-release-assets.ps1 -Directory artifacts/ci-release-assets -Tag "v$env:CI_PACKAGE_VERSION" -Commit $env:CI_COMMIT
       - name: Upload x64 bundle
         if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle

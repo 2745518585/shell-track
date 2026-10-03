@@ -70,6 +70,8 @@ gh variable set SHELLTRACK_SIGNING_THUMBPRINT --body $releaseCert.Thumbprint --e
 
 ## 日常发布与恢复
 
+没有手动触发 Actions 的权限时，可以修改默认分支上的 `.github/release-test.json`（指定测试版本并增加 `attempt`），提交并推送。仅这个文件的变更触发提交式发布试跑：构建、固定证书签名、三种附件、来源证明、跨 job 下载与 Linux 校验都会执行，`publish` 必定跳过，不创建版本标签或公开 Release。附件 metadata 标记 `dryRun: true`，其中的 tag 是拟发布的版本名。此入口同样使用 `release` Environment，需要允许默认分支及配置签名 Secrets；普通源代码提交不会触发它。
+
 1. 合并代码到默认分支，确认 `windows` 与 `workflow-lint` 检查通过，并完成人工 UI 验收。
 2. 决定更高的版本号，在目标 commit 上创建附注标签（可用 GPG 签标签），推送标签：
 

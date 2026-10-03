@@ -28,13 +28,14 @@ New-Item -ItemType Directory -Path $assets | Out-Null
 [IO.Compression.ZipFile]::CreateFromDirectory($bundle, (Join-Path $assets 'ShellTrack-0.3.1-win-x64.zip'))
 foreach ($name in @('ShellTrack-0.3.1-win-x64-Setup.exe', 'ShellTrack-0.3.1.0-win-x64.msix', 'ShellTrack.cer', 'INSTALL.md', 'INNO-LICENSE.txt')) { Set-Content -LiteralPath (Join-Path $assets $name) -Value 'fixture' }
 $commit = 'a' * 40
-@{ tag = 'v0.3.1'; version = '0.3.1'; msixVersion = '0.3.1.0'; commit = $commit } | ConvertTo-Json | Set-Content (Join-Path $assets 'release.json')
+@{ tag = 'v0.3.1'; version = '0.3.1'; msixVersion = '0.3.1.0'; commit = $commit; dryRun = $true } | ConvertTo-Json | Set-Content (Join-Path $assets 'release.json')
 $hashes = @(Get-ChildItem $assets -File | Sort-Object Name | ForEach-Object { (Get-FileHash $_.FullName).Hash.ToLowerInvariant() + '  ' + $_.Name })
 $sums = Join-Path $assets 'SHA256SUMS.txt'
 [IO.File]::WriteAllText($sums, ($hashes -join "`n") + "`n")
 $verify = Join-Path $PSScriptRoot 'verify-release-assets.ps1'
 & $verify -Directory $assets -Tag v0.3.1 -Commit $commit
 $script:checks++
+Assert-Rejected { & $verify -Directory $assets -Tag v0.3.1 -Commit $commit -RequirePublishable } 'publishing dry-run assets'
 Assert-Rejected { & $verify -Directory $assets -Tag v0.3.1 -Commit ('b' * 40) } 'wrong commit'
 Add-Content (Join-Path $assets 'INSTALL.md') 'tampered'
 Assert-Rejected { & $verify -Directory $assets -Tag v0.3.1 -Commit $commit } 'tampered attachment'

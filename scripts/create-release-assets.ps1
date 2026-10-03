@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][string]$Commit,
     [Parameter(Mandatory)][string]$BundleDirectory,
     [Parameter(Mandatory)][string]$InstallerDirectory,
-    [Parameter(Mandatory)][string]$OutputDirectory
+    [Parameter(Mandatory)][string]$OutputDirectory,
+    [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
 $release = & (Join-Path $PSScriptRoot 'release-version.ps1') -Tag $Tag
@@ -26,6 +27,7 @@ foreach ($name in @("ShellTrack-$($release.version)-win-x64-Setup.exe", "ShellTr
 # Public metadata omits runner paths and build logs.
 [ordered]@{
     tag = $Tag; version = $release.version; msixVersion = $release.msixVersion; commit = $Commit.ToLowerInvariant()
+    dryRun = [bool]$DryRun
     publisher = $details.publisher; certificateThumbprint = $details.certificateThumbprint; selfSigned = $details.selfSigned
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'release.json') -Encoding utf8
 $hashes = foreach ($file in Get-ChildItem -LiteralPath $output -File | Sort-Object Name) {

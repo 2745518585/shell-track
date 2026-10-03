@@ -1,8 +1,9 @@
 #Requires -Version 7.0
-param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$Tag, [Parameter(Mandatory)][string]$Commit)
+param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$Tag, [Parameter(Mandatory)][string]$Commit, [switch]$RequirePublishable)
 $ErrorActionPreference = 'Stop'
 $release = & (Join-Path $PSScriptRoot 'release-version.ps1') -Tag $Tag
 $metadata = Get-Content -LiteralPath (Join-Path $Directory 'release.json') -Raw | ConvertFrom-Json
+if ($RequirePublishable -and $metadata.dryRun -ne $false) { throw 'Dry-run or unclassified artifacts cannot be published as a release.' }
 if ($metadata.tag -cne $Tag -or $metadata.commit -ne $Commit -or $metadata.version -ne $release.version -or $metadata.msixVersion -ne $release.msixVersion) { throw 'Release metadata does not match the requested tag/commit.' }
 $expected = @("ShellTrack-$($release.version)-win-x64.zip", "ShellTrack-$($release.version)-win-x64-Setup.exe", "ShellTrack-$($release.msixVersion)-win-x64.msix", 'ShellTrack.cer', 'INSTALL.md', 'INNO-LICENSE.txt', 'release.json')
 $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)

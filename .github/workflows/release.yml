@@ -3,6 +3,8 @@ name: Release Windows packages
 on:
   push:
     tags: ['v*']
+    branches: [master]
+    paths: ['.github/release-test.json']
   workflow_dispatch:
     inputs:
       tag:
@@ -30,6 +32,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       msix_version: ${{ steps.version.outputs.msix_version }}
       commit: ${{ steps.version.outputs.commit }}
+      publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,17 +46,28 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           EVENT_NAME: ${{ github.event_name }}
           DISPATCH_REF: ${{ github.ref_name }}
+          BRANCH_TEST: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+          PUBLISH_REQUESTED: ${{ (github.event_name == 'push' && github.ref_type == 'tag') || inputs.publish }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:EVENT_NAME -eq 'workflow_dispatch' -and $env:DISPATCH_REF -ne $env:DEFAULT_BRANCH) {
             throw 'Manual release runs must use the default branch workflow.'
           }
-          $version = ./scripts/release-version.ps1 -Tag $env:RELEASE_TAG
-          $commit = git rev-parse --verify "refs/tags/$($version.tag)^{commit}"
-          if ($LASTEXITCODE -ne 0) { throw 'The version tag must already exist.' }
+          if ($env:BRANCH_TEST -eq 'true') {
+            if ($env:DISPATCH_REF -ne $env:DEFAULT_BRANCH) { throw 'Commit-triggered tests must use the default branch.' }
+            $fixture = Get-Content .github/release-test.json -Raw | ConvertFrom-Json
+            $version = ./scripts/release-version.ps1 -Tag "v$($fixture.version)"
+            $commit = git rev-parse --verify HEAD
+            $publish = 'false'
+          } else {
+            $version = ./scripts/release-version.ps1 -Tag $env:RELEASE_TAG
+            $commit = git rev-parse --verify "refs/tags/$($version.tag)^{commit}"
+            if ($LASTEXITCODE -ne 0) { throw 'The version tag must already exist.' }
+            $publish = if ($env:PUBLISH_REQUESTED -eq 'true') { 'true' } else { 'false' }
+          }
           git merge-base --is-ancestor $commit "origin/$env:DEFAULT_BRANCH"
           if ($LASTEXITCODE -ne 0) { throw 'Only commits merged into the default branch can be released.' }
-          @("tag=$($version.tag)", "version=$($version.version)", "msix_version=$($version.msixVersion)", "commit=$commit") |
+          @("tag=$($version.tag)", "version=$($version.version)", "msix_version=$($version.msixVersion)", "commit=$commit", "publish=$publish") |
             Add-Content -LiteralPath $env:GITHUB_OUTPUT
 
   build:
@@ -73,6 +87,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.validate.outputs.version }}
       MSIX_VERSION: ${{ needs.validate.outputs.msix_version }}
       RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      PUBLISH_RELEASE: ${{ needs.validate.outputs.publish }}
       TIMESTAMP_URL: ${{ vars.SHELLTRACK_TIMESTAMP_URL || 'http://timestamp.digicert.com' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -82,6 +97,15 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
+      - name: Check release signing configuration without exposing secrets
+        env:
+          SHELLTRACK_SIGNING_PFX_BASE64: ${{ secrets.SHELLTRACK_SIGNING_PFX_BASE64 }}
+          SHELLTRACK_SIGNING_PFX_PASSWORD: ${{ secrets.SHELLTRACK_SIGNING_PFX_PASSWORD }}
+          SHELLTRACK_SIGNING_THUMBPRINT: ${{ vars.SHELLTRACK_SIGNING_THUMBPRINT }}
+        run: |
+          foreach ($name in @('SHELLTRACK_SIGNING_PFX_BASE64', 'SHELLTRACK_SIGNING_PFX_PASSWORD', 'SHELLTRACK_SIGNING_THUMBPRINT')) {
+            if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Missing release Environment configuration: $name" }
+          }
       # Release builds do not restore a cache populated by pull requests.
       - name: Build and test the tagged source
         run: |
@@ -114,7 +138,7 @@ jobs:
         run: ./scripts/verify-installers.ps1 -InstallerDirectory artifacts/release-installers
       - name: Create portable ZIP and release checksums
         run: |
-          ./scripts/create-release-assets.ps1 -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT -BundleDirectory artifacts/release-bundle -InstallerDirectory artifacts/release-installers -OutputDirectory artifacts/release
+          ./scripts/create-release-assets.ps1 -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT -BundleDirectory artifacts/release-bundle -InstallerDirectory artifacts/release-installers -OutputDirectory artifacts/release -DryRun:($env:PUBLISH_RELEASE -ne 'true')
           ./scripts/verify-release-assets.ps1 -Directory artifacts/release -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT
       - name: Attest build provenance for all release files
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -134,9 +158,41 @@ jobs:
           SIGNING_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}
         run: Remove-Item -LiteralPath "Cert:/CurrentUser/My/$env:SIGNING_THUMBPRINT" -DeleteKey -ErrorAction Stop
 
-  publish:
+  verify:
     needs: [validate, build]
-    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.validate.outputs.tag }}
+          path: artifacts/release
+      - name: Recheck cross-job assets on Linux
+        shell: pwsh
+        run: ./scripts/verify-release-assets.ps1 -Directory artifacts/release -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT
+      - name: Verify GitHub build provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r _ filename; do
+            gh attestation verify "artifacts/release/$filename" --repo "$GH_REPO" --signer-workflow "$GH_REPO/.github/workflows/release.yml" --deny-self-hosted-runners
+          done < artifacts/release/SHA256SUMS.txt
+
+  publish:
+    needs: [validate, build, verify]
+    if: needs.validate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -158,7 +214,7 @@ jobs:
           path: artifacts/release
       - name: Recheck downloaded release assets
         shell: pwsh
-        run: ./scripts/verify-release-assets.ps1 -Directory artifacts/release -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT
+        run: ./scripts/verify-release-assets.ps1 -Directory artifacts/release -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT -RequirePublishable
       - name: Verify provenance and publish the complete release
         shell: bash
         run: |
@@ -171,9 +227,6 @@ jobs:
           fi
           remote_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
           test "$remote_commit" = "$RELEASE_COMMIT"
-          while read -r _ filename; do
-            gh attestation verify "artifacts/release/$filename" --repo "$GH_REPO" --signer-workflow "$GH_REPO/.github/workflows/release.yml" --deny-self-hosted-runners
-          done < artifacts/release/SHA256SUMS.txt
           remote_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
           test "$remote_commit" = "$RELEASE_COMMIT"
           gh release create "$RELEASE_TAG" artifacts/release/* --verify-tag --target "$RELEASE_COMMIT" --draft --title "Shell Track $RELEASE_TAG" --generate-notes --notes "Windows x64: portable ZIP, EXE installer and MSIX. See INSTALL.md for certificate trust and installation; SHA256SUMS.txt and release.json identify this build."
