@@ -6,6 +6,7 @@ using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using ShellTrack.Client;
 using ShellTrack.Contracts;
 using ShellTrack.Core;
@@ -25,19 +26,37 @@ public partial class MainWindow : Window
     private readonly CancellationTokenSource closing = new();
     private CancellationTokenSource? selection;
     private TrayIcon? tray;
-    private bool refreshing, exit, notificationUpdating;
+    private bool refreshing, exit, notificationUpdating, updatingTaskRows;
     private string? selectedId, pendingId;
     private TextLog? selectedLog;
-    private sealed record Preferences(bool DetailsVisible = true, bool FollowOutput = true);
+    private int defaultPreviewRows = 5;
+    private Dictionary<string, int> previewPreferences = [];
+    private readonly SemaphoreSlim previewReads = new(4);
+    private sealed record Preferences(bool DetailsVisible = true, bool FollowOutput = true, int PreviewRows = 5, Dictionary<string, int>? TaskPreviewRows = null);
     private static string TaskTitle(CreateSessionRequest request) => request.Command ??
         (string.IsNullOrEmpty(request.RawArguments) ? request.Shell + " · 交互会话" : request.Shell + " " + request.RawArguments);
 
-    private sealed class TaskRow(SessionInfo initial) : INotifyPropertyChanged
+    private sealed class TaskRow(SessionInfo initial, int previewRows) : INotifyPropertyChanged
     {
+        private TextLog preview = new(65536, trimCurrentLine: true);
+        private long previewOffset = -1;
+        private bool previewNumbersKnown = true;
+        private IReadOnlyList<LogRow> previewLines = [new(0, initial.OutputLength == 0 ? initial.IsFinished ? "没有可显示的输出" : "等待输出…" : "正在读取输出…")];
+        private int visibleRows = Math.Clamp(previewRows, 1, 30);
         public SessionInfo Session { get; private set; } = initial;
         public string Title => TaskTitle(Session.Request);
         public string Subtitle => $"{StateName(Session.State)} · {Session.StartedAt.LocalDateTime:MM-dd HH:mm:ss}" + (Session.ExitCode is null ? "" : $" · 退出码 {Session.ExitCode}");
-        public string Preview => string.IsNullOrWhiteSpace(Session.LatestOutputLine) ? (Session.IsFinished ? "没有可显示的输出" : "等待输出…") : Session.LatestOutputLine;
+        public IReadOnlyList<LogRow> PreviewLines => previewLines;
+        public string PreviewNotice { get; private set; } = "";
+        public Visibility PreviewNoticeVisibility => PreviewNotice.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        public int PreviewRows
+        {
+            get => visibleRows;
+            set { int next = Math.Clamp(value, 1, 30); if (next == visibleRows) return; visibleRows = next; RebuildPreview(); PropertyChanged?.Invoke(this, new(null)); }
+        }
+        public string PreviewRowLabel => $"{PreviewRows} 行";
+        public bool CanShrinkPreview => PreviewRows > 1;
+        public bool CanGrowPreview => PreviewRows < 30;
         private int NotificationConditionCount => (Session.Request.Notify ? 1 : 0) + Session.Request.NotifyPatterns.Length;
         public string NotificationLabel => NotificationConditionCount > 0 ? $"通知条件 {NotificationConditionCount} 项" : "通知已关闭";
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -45,12 +64,44 @@ public partial class MainWindow : Window
         {
             if (Session == session) return;
             Session = session;
+            if (preview.GetLines().Count == 0) RebuildPreview();
             PropertyChanged?.Invoke(this, new(null));
+        }
+        public async Task ReadPreview(ShellTrackClient source, CancellationToken cancellation)
+        {
+            long end = Session.OutputLength;
+            if (previewOffset == end) { if (previewLines.Count == 0) RebuildPreview(); return; }
+            if (previewOffset < 0 || end - previewOffset > 65536)
+            {
+                long start = Math.Max(0, end - 65536);
+                preview = new TextLog(65536, trimCurrentLine: true);
+                previewOffset = start; previewNumbersKnown = start == 0;
+                if (start > 0) preview.ResetAfterGap();
+            }
+            var page = await source.OutputAsync(Session.Id, previewOffset, cancellation);
+            var bytes = Convert.FromBase64String(page.Data);
+            if (page.Gap)
+            {
+                preview = new TextLog(65536, trimCurrentLine: true); previewNumbersKnown = false;
+                PreviewNotice = bytes.Length == 0 ? "输出尾部已不可用，显示最后行摘要。" : "部分输出已不可用，显示可用尾部。";
+            }
+            preview.Append(bytes);
+            previewOffset = long.Parse(page.NextOffset, System.Globalization.CultureInfo.InvariantCulture);
+            RebuildPreview();
+        }
+        private void RebuildPreview()
+        {
+            previewLines = preview.GetLines().TakeLast(PreviewRows).Select(line => new LogRow(previewNumbersKnown ? line.Number : 0, line.Text)).ToArray();
+            if (previewLines.Count == 0) previewLines = [new(0, string.IsNullOrWhiteSpace(Session.LatestOutputLine) ? Session.IsFinished ? "没有可显示的输出" : "等待输出…" : Session.LatestOutputLine)];
+            PropertyChanged?.Invoke(this, new(nameof(PreviewLines)));
+            PropertyChanged?.Invoke(this, new(nameof(PreviewNotice)));
+            PropertyChanged?.Invoke(this, new(nameof(PreviewNoticeVisibility)));
         }
     }
     private sealed class LogRow(long number, string initialText) : INotifyPropertyChanged
     {
         public long Number { get; } = number;
+        public string NumberLabel => Number > 0 ? Number.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
         public string Text { get; private set; } = initialText;
         public event PropertyChangedEventHandler? PropertyChanged;
         public void Update(string text)
@@ -95,20 +146,34 @@ public partial class MainWindow : Window
         {
             var tasks = await client.ListAllAsync(closing.Token);
             var ids = tasks.Select(t => t.Id).ToHashSet();
-            for (int i = rows.Count - 1; i >= 0; i--) if (!ids.Contains(rows[i].Session.Id)) rows.RemoveAt(i);
-            for (int i = 0; i < tasks.Length; i++)
+            updatingTaskRows = true;
+            try
             {
-                var row = rows.FirstOrDefault(r => r.Session.Id == tasks[i].Id);
-                if (row is null) { row = new(tasks[i]); rows.Insert(i, row); }
-                else { row.Update(tasks[i]); int position = rows.IndexOf(row); if (position != i) rows.Move(position, i); }
+                for (int i = rows.Count - 1; i >= 0; i--) if (!ids.Contains(rows[i].Session.Id)) rows.RemoveAt(i);
+                for (int i = 0; i < tasks.Length; i++)
+                {
+                    var row = rows.FirstOrDefault(r => r.Session.Id == tasks[i].Id);
+                    if (row is null) { row = new(tasks[i], previewPreferences.GetValueOrDefault(tasks[i].Id, defaultPreviewRows)); rows.Insert(i, row); }
+                    else { row.Update(tasks[i]); int position = rows.IndexOf(row); if (position != i) rows.Move(position, i); }
+                }
             }
+            finally { updatingTaskRows = false; }
             TaskCount.Text = $"{tasks.Count(t => !t.IsFinished)} 个运行中 · {tasks.Length} 个任务";
             if (selectedId is not null && !ids.Contains(selectedId)) ClearSelection();
             string? wanted = pendingId ?? selectedId;
             var target = rows.FirstOrDefault(r => r.Session.Id == wanted);
             if (target is not null) { TaskList.SelectedItem = target; pendingId = null; }
-            else if (TaskList.SelectedItem is null && pendingId is null) TaskList.SelectedItem = rows.FirstOrDefault();
             if (selectedId is not null && tasks.FirstOrDefault(s => s.Id == selectedId) is { } info) UpdateDetails(info);
+            var source = client;
+            var visibleRows = Descendants<OutputPreview>(TaskList).Select(p => p.DataContext).OfType<TaskRow>().ToHashSet();
+            await Task.WhenAll(rows.Where(r => !r.Session.IsFinished || visibleRows.Contains(r)).Select(async row =>
+            {
+                await previewReads.WaitAsync(closing.Token);
+                try { await row.ReadPreview(source, closing.Token); }
+                catch (HttpRequestException) { } // A task can be deleted while its preview request is in flight.
+                finally { previewReads.Release(); }
+            }));
+            if (Environment.GetEnvironmentVariable("SHELLTRACK_DIAGNOSTICS") == "1") DispatcherQueue.TryEnqueue(WriteUiDiagnostics);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { ConnectionStatus.Text = "刷新失败：" + ex.Message + "；点击刷新可重新连接。"; }
@@ -144,8 +209,10 @@ public partial class MainWindow : Window
     }
     private async void TaskList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (TaskList.SelectedItem is not TaskRow row || client is null || selectedId == row.Session.Id) return;
+        if (TaskList.SelectedItem is not TaskRow row) { if (!updatingTaskRows) ClearSelection(); return; }
+        if (client is null || selectedId == row.Session.Id) return;
         selectedId = row.Session.Id; selection?.Cancel(); selection = CancellationTokenSource.CreateLinkedTokenSource(closing.Token);
+        ApplyLayout();
         var cancellation = selection.Token; var source = client; string id = selectedId;
         UpdateDetails(row.Session); logRows.Clear();
         var text = new TextLog(256_000); selectedLog = text; var watch = Stopwatch.StartNew();
@@ -322,6 +389,27 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
     private void DetailsToggle_Click(object sender, RoutedEventArgs e) { ApplyLayout(); SavePreferences(); }
+    private void Overview_Click(object sender, RoutedEventArgs e) { pendingId = null; ClearSelection(); }
+    private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.Escape || notificationUpdating || selectedId is null) return;
+        pendingId = null; ClearSelection(); e.Handled = true;
+    }
+    private void PreviewLess_Click(object sender, RoutedEventArgs e) => ChangePreview(sender, -1);
+    private void PreviewMore_Click(object sender, RoutedEventArgs e) => ChangePreview(sender, 1);
+    private void ChangePreview(object sender, int delta)
+    {
+        if (sender is not FrameworkElement { DataContext: TaskRow row }) return;
+        row.PreviewRows += delta; SavePreferences();
+    }
+    private void PreviewDefaultLess_Click(object sender, RoutedEventArgs e) => ChangeAllPreviews(-1);
+    private void PreviewDefaultMore_Click(object sender, RoutedEventArgs e) => ChangeAllPreviews(1);
+    private void ChangeAllPreviews(int delta)
+    {
+        defaultPreviewRows = Math.Clamp(defaultPreviewRows + delta, 1, 30);
+        foreach (var row in rows) row.PreviewRows += delta;
+        PreviewDefaultLabel.Text = $"{defaultPreviewRows} 行"; SavePreferences();
+    }
     private void FollowToggle_Click(object sender, RoutedEventArgs e)
     {
         if (FollowToggle.IsChecked == true && logRows.Count > 0) LogList.ScrollIntoView(logRows[^1]);
@@ -330,11 +418,16 @@ public partial class MainWindow : Window
     private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e) => ApplyLayout();
     private void ApplyLayout()
     {
-        if (TaskColumn is null || DetailsColumn is null) return;
+        if (TaskColumn is null || DetailsColumn is null || OutputColumn is null) return;
         double width = RootGrid.ActualWidth;
-        TaskColumn.Width = new GridLength(width < 900 ? 220 : 290);
+        bool selected = selectedId is not null;
+        TaskColumn.Width = selected ? new GridLength(width < 900 ? 220 : 290) : new GridLength(1, GridUnitType.Star);
+        OutputColumn.Width = selected ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        WorkspaceGrid.ColumnSpacing = selected ? 16 : 0;
+        ContentGrid.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+        OverviewButton.IsEnabled = DetailsToggle.IsEnabled = selected;
         RootGrid.Padding = new Thickness(width < 900 ? 16 : 24);
-        bool visible = DetailsToggle.IsChecked == true && width >= 1100;
+        bool visible = selected && DetailsToggle.IsChecked == true && width >= 1100;
         DetailsColumn.Width = new GridLength(visible ? 280 : 0);
         DetailsPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(DetailsToggle, width < 1100 ? "加宽窗口后显示右侧详情" : "显示或收起任务详情");
@@ -346,7 +439,13 @@ public partial class MainWindow : Window
         {
             if (!File.Exists(PreferencesPath)) return;
             var settings = JsonSerializer.Deserialize<Preferences>(File.ReadAllText(PreferencesPath));
-            if (settings is not null) { DetailsToggle.IsChecked = settings.DetailsVisible; FollowToggle.IsChecked = settings.FollowOutput; }
+            if (settings is not null)
+            {
+                DetailsToggle.IsChecked = settings.DetailsVisible; FollowToggle.IsChecked = settings.FollowOutput;
+                defaultPreviewRows = Math.Clamp(settings.PreviewRows, 1, 30);
+                previewPreferences = settings.TaskPreviewRows ?? [];
+                PreviewDefaultLabel.Text = $"{defaultPreviewRows} 行";
+            }
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { }
     }
@@ -355,7 +454,8 @@ public partial class MainWindow : Window
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(PreferencesPath)!);
-            File.WriteAllText(PreferencesPath, JsonSerializer.Serialize(new Preferences(DetailsToggle.IsChecked == true, FollowToggle.IsChecked == true)));
+            previewPreferences = rows.Where(r => r.PreviewRows != defaultPreviewRows).ToDictionary(r => r.Session.Id, r => r.PreviewRows);
+            File.WriteAllText(PreferencesPath, JsonSerializer.Serialize(new Preferences(DetailsToggle.IsChecked == true, FollowToggle.IsChecked == true, defaultPreviewRows, previewPreferences)));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { ConnectionStatus.Text = "视图设置未保存：" + ex.Message; }
     }
@@ -365,6 +465,10 @@ public partial class MainWindow : Window
     private void RootGrid_Loaded(object sender, RoutedEventArgs e)
     {
         ApplyLayout();
+        WriteUiDiagnostics();
+    }
+    private void WriteUiDiagnostics()
+    {
         if (Environment.GetEnvironmentVariable("SHELLTRACK_DIAGNOSTICS") != "1") return;
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var diagnostics = new
@@ -373,18 +477,32 @@ public partial class MainWindow : Window
             perMonitorV2 = AreDpiAwarenessContextsEqual(GetWindowDpiAwarenessContext(hwnd), new IntPtr(-4)),
             width = RootGrid.ActualWidth, height = RootGrid.ActualHeight, readOnly = true, numberedLogs = true,
             detailsVisible = DetailsPanel.Visibility == Visibility.Visible,
+            selectedTask = selectedId, overview = ContentGrid.Visibility == Visibility.Collapsed,
+            cardsWidth = TaskList.ActualWidth, contentVisible = ContentGrid.Visibility == Visibility.Visible,
+            previews = Descendants<OutputPreview>(TaskList).Select(p => p.Diagnostics()).ToArray(),
             packageFamily = ShellTrack.Windows.PackageIdentity.FamilyName,
             physicalWidth = AppWindow.Size.Width, physicalHeight = AppWindow.Size.Height
         };
         Directory.CreateDirectory(dataRoot ?? ShellTrackClient.DefaultDataRoot);
         File.WriteAllText(Path.Combine(dataRoot ?? ShellTrackClient.DefaultDataRoot, "ui-diagnostics.json"), JsonSerializer.Serialize(diagnostics));
     }
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) yield return match;
+            foreach (var nested in Descendants<T>(child)) yield return nested;
+        }
+    }
     public void SelectTask(string id) { pendingId = id; _ = Refresh(); }
     private void ClearSelection()
     {
         selection?.Cancel(); selectedId = null; selectedLog = null; logRows.Clear();
+        TaskList.SelectedItem = null;
         LogTitle.Text = DetailTitle.Text = "选择一个任务"; DetailStatus.Text = ""; LogSummary.Text = "选择左侧任务，查看实时输出和历史日志。";
         ActionsButton.IsEnabled = NotificationToggle.IsEnabled = false;
         NotificationToggle.IsChecked = false;
+        ApplyLayout();
     }
 }

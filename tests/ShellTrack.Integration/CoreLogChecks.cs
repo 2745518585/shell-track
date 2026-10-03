@@ -32,6 +32,16 @@ internal static class CoreLogChecks
         string longText = new('x', 20_000);
         longLine.Append(Encoding.UTF8.GetBytes(longText));
         check(longLine.GetLines().Single() == new NumberedLogLine(1, longText), "长行即使超过保留阈值也只有一个逻辑行号");
+        var tail = new TextLog(128, trimCurrentLine: true);
+        tail.Append(Encoding.UTF8.GetBytes(longText + "TAIL"));
+        check(tail.ToString().Length <= 128 && tail.LastLine.EndsWith("TAIL") && tail.GetLines().Single().Number == 1,
+            "卡片尾部模式限制超长行内存并保留末尾内容和逻辑行号");
+        tail.Append(Encoding.UTF8.GetBytes("\nNEXT"));
+        check(tail.GetLines()[^1] == new NumberedLogLine(2, "NEXT"), "截断超长行后仍正确追加和编号新行");
+        var emojiTail = new TextLog(6, trimCurrentLine: true);
+        emojiTail.Append(Encoding.UTF8.GetBytes("xxxx😀END"));
+        check(new UTF8Encoding(false, true).GetString(new UTF8Encoding(false, true).GetBytes(emojiTail.ToString())) == emojiTail.ToString(),
+            "卡片尾部裁剪不会切断 UTF-16 字符对");
 
         var bounded = new TextLog(256);
         for (int number = 1; number <= 50; number++) bounded.Append(Encoding.UTF8.GetBytes($"row-{number:D3}: " + new string('x', 40) + "\n"));

@@ -11,13 +11,15 @@ public sealed class TextLog
     private readonly StringBuilder text = new();
     private readonly TerminalTextDecoder decoder = new();
     private readonly int retainedCharacterLimit;
+    private readonly bool trimCurrentLine;
     private int cursor, lineStart;
     public long FirstLineNumber { get; private set; } = 1;
 
-    public TextLog(int retainedCharacterLimit = 1_000_000)
+    public TextLog(int retainedCharacterLimit = 1_000_000, bool trimCurrentLine = false)
     {
         if (retainedCharacterLimit < 1) throw new ArgumentOutOfRangeException(nameof(retainedCharacterLimit));
         this.retainedCharacterLimit = retainedCharacterLimit;
+        this.trimCurrentLine = trimCurrentLine;
     }
 
     public void Append(ReadOnlySpan<byte> bytes)
@@ -47,10 +49,17 @@ public sealed class TextLog
             remove = i + 1;
             lines++;
         }
-        if (remove == 0) return; // Preserve an oversized current logical line.
+        if (trimCurrentLine && text.Length - remove > retainedCharacterLimit)
+        {
+            int tail = text.Length - Math.Max(1, target);
+            if (tail < text.Length && char.IsLowSurrogate(text[tail])) tail++;
+            for (int i = remove; i < tail; i++) if (text[i] == '\n') lines++;
+            remove = tail;
+        }
+        if (remove == 0) return; // Full log views preserve oversized logical lines.
         text.Remove(0, remove);
-        cursor -= remove;
-        lineStart -= remove;
+        cursor = Math.Max(0, cursor - remove);
+        lineStart = Math.Max(0, lineStart - remove);
         FirstLineNumber += lines;
     }
 
