@@ -9,6 +9,7 @@ $dataRoot = Join-Path $devRoot 'data'
 $workspaceRoot = Join-Path $devRoot 'workspace'
 $stageRoot = Join-Path $devRoot ('publish-' + [Guid]::NewGuid().ToString('N'))
 $previousRoot = Join-Path $devRoot ('previous-' + [Guid]::NewGuid().ToString('N'))
+. (Join-Path $PSScriptRoot 'dev-process-path.ps1')
 
 # These fixed directories must remain inside the checkout, even when replacing
 # an existing bundle. Refuse junctions/symlinks rather than following them.
@@ -31,15 +32,16 @@ function Assert-LocalDirectory([string]$Path, [switch]$CheckContents) {
     }
 }
 function Get-DevProcesses {
-    Get-Process | Where-Object {
-        try {
-            $_.Path -and $_.Path.StartsWith($bundleRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
-        } catch { $false }
+    Get-Process -Name 'ShellTrack*' -ErrorAction SilentlyContinue | Where-Object {
+        $path = [ShellTrackDevProcessPath]::Read($_.Id)
+        if (-not $path -and -not $_.HasExited) { throw "Cannot identify Shell Track process $($_.Id). Exit it from the tray before rebuilding." }
+        $path -and $path.StartsWith($bundleRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
     }
 }
 function Stop-DevProcess($Process) {
     if ($Process.HasExited) { return }
-    Stop-Process -InputObject $Process -Force
+    try { Stop-Process -InputObject $Process -Force }
+    catch { throw "Cannot stop test process $($Process.Id). Exit the test viewer/host first, or run this script with the same permissions as the test process. $($_.Exception.Message)" }
     if (-not $Process.WaitForExit(5000)) { throw "Test process did not exit: $($Process.Id)" }
 }
 
@@ -63,10 +65,12 @@ try {
     foreach ($process in @(Get-DevProcesses)) { Stop-DevProcess $process }
 
     Assert-LocalDirectory $bundleRoot -CheckContents
-    if (Test-Path -LiteralPath $bundleRoot) { Move-Item -LiteralPath $bundleRoot -Destination $previousRoot }
-    try { Move-Item -LiteralPath $stageRoot -Destination $bundleRoot }
+    # Same-volume directory renames are atomic. PowerShell's recursive Move-Item
+    # can move only some children before discovering a locked file.
+    if (Test-Path -LiteralPath $bundleRoot) { [IO.Directory]::Move($bundleRoot, $previousRoot) }
+    try { [IO.Directory]::Move($stageRoot, $bundleRoot) }
     catch {
-        if (Test-Path -LiteralPath $previousRoot) { Move-Item -LiteralPath $previousRoot -Destination $bundleRoot }
+        if (Test-Path -LiteralPath $previousRoot) { [IO.Directory]::Move($previousRoot, $bundleRoot) }
         throw
     }
     if (Test-Path -LiteralPath $previousRoot) {

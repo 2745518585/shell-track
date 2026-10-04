@@ -21,7 +21,7 @@
 ./work/dev/bin/shelltrack.exe -d "$PWD/work/dev/data" -w "$PWD/work/dev/workspace" -s cmd -c 'echo LOCAL_TEST_OK'
 ```
 
-上例从仓库根目录执行。测试 shell 包装入口时，先将该终端的 `SHELLTRACK_DATA_DIR` 设为 `work/dev/data` 的绝对路径，并切换到 `work/dev/workspace`，再调用 `work/dev/bin` 中对应入口。
+上例从仓库根目录执行。测试 shell 包装入口时，先将该终端的 `SHELLTRACK_DATA_DIR` 设为 `work/dev/data` 的绝对路径，并切换到 `work/dev/workspace`，再调用 `work/dev/bin` 中对应入口。目录替换使用同一磁盘上的原子重命名。若测试进程以更高权限运行，脚本会提示先退出对应进程或以相同权限执行，保留旧程序；从托盘“退出查看器”才会结束窗口进程，直接关窗会隐藏到托盘。
 
 普通发布默认依赖 .NET 10 和 ASP.NET Core 10 运行时；`publish.ps1 -SelfContained` 会携带运行时。Windows App SDK 随 WinUI 发布目录一起提供。
 `publish.ps1 -Version 0.3.1` 将标签版本写入程序文件；不传时保留开发默认版本。
