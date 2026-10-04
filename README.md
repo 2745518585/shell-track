@@ -132,7 +132,12 @@ pwsh -NoProfile -File scripts/test.ps1
 
 # 创建新的 Release 发布目录
 pwsh -NoProfile -File scripts/publish.ps1
+
+# 更新固定的本地测试目录并打开窗口（可重复运行）
+pwsh -NoProfile -File scripts/dev.ps1
 ```
+
+`dev.ps1` 使用 `work/dev/bin` 存放程序、`work/dev/data` 保存测试任务记录和窗口设置、`work/dev/workspace` 作为运行时工作目录。每次编译成功后替换旧程序并重启测试窗口，同时结束这个测试版本的运行任务；任务记录和工作目录保留。添加 `-NoLaunch` 只更新程序。具体调用方式见 [脚本说明](scripts/README.md)。
 
 发布产物位于 `artifacts/shelltrack-win-x64-<时间>/`。运行入口为根目录的 `shelltrack.exe`，桌面文件位于 `desktop/`。请整体保留该目录结构；`shelltrack ui` 会找到配套窗口，窗口会找到根目录的后台。
 

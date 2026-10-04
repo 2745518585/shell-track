@@ -6,12 +6,22 @@
 ./scripts/build.ps1
 ./scripts/test.ps1
 ./scripts/publish.ps1
+./scripts/dev.ps1
 ```
 
 - `build.ps1 -Configuration Release` 构建核心、CLI、集成检查和 WinUI。`-CoreOnly` 跳过 WinUI。
 - `test.ps1 -Configuration Release -NoBuild` 运行已有 Release 构建的真实 Windows 集成检查。省略 `-NoBuild` 会先构建测试程序与依赖。
 - `publish.ps1` 创建全新的 `artifacts/shelltrack-win-x64-<时间>` 发布目录，包含 CLI/Host、三种 shell 包装入口、`desktop` 下的 WinUI、README、许可证及依赖声明。`-CoreOnly` 跳过 WinUI；`-OutputDirectory artifacts/my-bundle` 指定新的目录，已有目录会被拒绝，避免混入旧版本文件。
 - `verify-bundle.ps1 -BundleDirectory artifacts/my-bundle` 检查发布包的窗口资源，并实际运行包内 CLI/Host 验证输出、退出码与记录。使用独立测试数据目录，不要求可见桌面。
+- `dev.ps1` 将完整测试程序更新到固定的 `work/dev/bin`，然后启动窗口；已有产物会替换，旧文件会清理。使用 `work/dev/data` 保留任务记录和窗口设置，运行时工作目录为 `work/dev/workspace`。编译成功后会关闭从这个测试目录启动的进程，并结束其后台的运行任务，其他发布目录的实例不受影响。`-NoLaunch` 只更新程序，`-SelfContained` 携带 .NET 运行时。编译失败时保留旧程序；测试数据和工作目录不会清空。
+
+从另一个 PowerShell 终端测试命令时，显式指定工作目录和数据目录：
+
+```powershell
+./work/dev/bin/shelltrack.exe -d "$PWD/work/dev/data" -w "$PWD/work/dev/workspace" -s cmd -c 'echo LOCAL_TEST_OK'
+```
+
+上例从仓库根目录执行。测试 shell 包装入口时，先将该终端的 `SHELLTRACK_DATA_DIR` 设为 `work/dev/data` 的绝对路径，并切换到 `work/dev/workspace`，再调用 `work/dev/bin` 中对应入口。
 
 普通发布默认依赖 .NET 10 和 ASP.NET Core 10 运行时；`publish.ps1 -SelfContained` 会携带运行时。Windows App SDK 随 WinUI 发布目录一起提供。
 `publish.ps1 -Version 0.3.1` 将标签版本写入程序文件；不传时保留开发默认版本。
