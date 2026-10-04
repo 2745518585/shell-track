@@ -141,7 +141,7 @@ static async Task<int> RunSession(ShellTrackClient client, SessionInfo session, 
             var inputSocket = socket;
             _ = Task.Run(async () =>
             {
-                var input = Console.OpenStandardInput(); var buffer = new byte[4096];
+                using var input = ConsoleInput.OpenUtf8(); var buffer = new byte[4096];
                 try
                 {
                     int count;

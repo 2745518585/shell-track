@@ -48,7 +48,7 @@ Windows 适配先创建 ConPTY，再以暂停状态创建 shell 并加入本任�
 
 ## 转发与只读显示
 
-CLI 开启原控制台的 VT 输入输出并取消本地行缓冲与回显，把输入字节转发给 shell，由 shell 完成编辑与回显。ConPTY 通道固定使用 UTF-8，因此转发期间将实际连接的控制台输入/输出代码页临时设为 65001，避免外层 cmd 的 936 等代码页误解 UTF-8 字节；同时同步 .NET Console 的编码缓存。退出时分别恢复原生代码页、托管编码缓存与控制台模式，不修改被代理 shell 的代码页，也不调整管道/文件重定向的编码。终端尺寸变化经输入 WebSocket 的 `resize` 消息传递。
+CLI 开启原控制台的 VT 输入输出并取消本地行缓冲与回显，由 shell 完成编辑与回显。实际控制台输入使用 `ReadConsoleW` 读取 Unicode 字符和 VT 按键序列，再增量编码为 UTF-8；绕过旧版 conhost 在 UTF-8 代码页下使用 `ReadFile` 时仍可能丢失非 ASCII 输入的问题。ConPTY 通道固定使用 UTF-8，因此转发期间将实际连接的控制台输入/输出代码页临时设为 65001，避免外层 cmd 的 936 等代码页误解 UTF-8 字节；同时同步 .NET Console 的编码缓存。退出时分别恢复原生代码页、托管编码缓存与控制台模式，不修改被代理 shell 的代码页；管道/文件重定向保持原始字节转发。终端尺寸变化经输入 WebSocket 的 `resize` 消息传递。
 
 ConPTY 输出是终端呈现流，stdout 与 stderr 已合并。Host 保存字节，Client 使用 Base64 HTTP 分页读取；传输层不对任意块直接转换为字符串。CLI 直接写回原终端，窗口用 `TextLog` 增量解码 UTF-8 并去除常见 CSI、OSC 等序列。
 

@@ -58,4 +58,5 @@ internal static class Native
     [DllImport("kernel32.dll")] internal static extern uint GetConsoleOutputCP();
     [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool SetConsoleCP(uint codePage);
     [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool SetConsoleOutputCP(uint codePage);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern bool ReadConsoleW(IntPtr input, [Out] char[] buffer, uint count, out uint read, IntPtr control);
 }
