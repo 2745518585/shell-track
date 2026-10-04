@@ -20,7 +20,10 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="Shell Track" Style="{StaticResource TitleTextBlockStyle}" />
-                <TextBlock x:Name="TaskCount" Text="任务与输出" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock x:Name="TaskCount" Text="任务与输出" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <HyperlinkButton x:Name="RestoreHiddenButton" Content="恢复隐藏任务" Click="RestoreHidden_Click" Visibility="Collapsed" Padding="0" ToolTipService.ToolTip="重新显示所有隐藏的任务卡片" />
+                </StackPanel>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <Button x:Name="OverviewButton" Content="总览" Click="Overview_Click" IsEnabled="False" ToolTipService.ToolTip="取消选择，同时监看所有任务（Esc）" />
@@ -43,18 +46,19 @@
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel Spacing="6" Padding="2,6">
+                        <StackPanel Spacing="6" Padding="2,6" RightTapped="TaskCard_RightTapped">
                             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
                             <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                             <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4" Padding="0,6">
                                 <local:OutputPreview Lines="{Binding PreviewLines}" Rows="{Binding PreviewRows}" LineHeight="{StaticResource LogLineHeight}" LineTemplate="{StaticResource LogLineTemplate}" />
                             </Border>
                             <Grid ColumnSpacing="6">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding NotificationLabel}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                 <Button Grid.Column="1" Content="−" Padding="6,2" Click="PreviewLess_Click" IsEnabled="{Binding CanShrinkPreview}" ToolTipService.ToolTip="减少此卡片的可见行数" />
                                 <TextBlock Grid.Column="2" Text="{Binding PreviewRowLabel}" FontSize="11" VerticalAlignment="Center" />
                                 <Button Grid.Column="3" Content="＋" Padding="6,2" Click="PreviewMore_Click" IsEnabled="{Binding CanGrowPreview}" ToolTipService.ToolTip="增加此卡片的可见行数" />
+                                <Button Grid.Column="4" Content="⋯" Padding="6,2" Click="CardActions_Click" ToolTipService.ToolTip="隐藏任务卡片" AutomationProperties.Name="任务卡片操作" />
                             </Grid>
                             <TextBlock Text="{Binding PreviewNotice}" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="{Binding PreviewNoticeVisibility}" />
                         </StackPanel>

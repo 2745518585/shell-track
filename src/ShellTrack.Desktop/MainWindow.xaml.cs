@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using ShellTrack.Client;
@@ -31,8 +32,10 @@ public partial class MainWindow : Window
     private TextLog? selectedLog;
     private int defaultPreviewRows = 5;
     private Dictionary<string, int> previewPreferences = [];
+    private HashSet<string> hiddenTaskIds = new(StringComparer.Ordinal);
+    private SessionInfo[] knownTasks = [];
     private readonly SemaphoreSlim previewReads = new(4);
-    private sealed record Preferences(bool DetailsVisible = true, bool FollowOutput = true, int PreviewRows = 5, Dictionary<string, int>? TaskPreviewRows = null);
+    private sealed record Preferences(bool DetailsVisible = true, bool FollowOutput = true, int PreviewRows = 5, Dictionary<string, int>? TaskPreviewRows = null, string[]? HiddenTaskIds = null);
     private static string TaskTitle(CreateSessionRequest request) => request.Command ??
         (string.IsNullOrEmpty(request.RawArguments) ? request.Shell + " · 交互会话" : request.Shell + " " + request.RawArguments);
 
@@ -144,26 +147,15 @@ public partial class MainWindow : Window
         refreshing = true;
         try
         {
-            var tasks = await client.ListAllAsync(closing.Token);
-            var ids = tasks.Select(t => t.Id).ToHashSet();
-            updatingTaskRows = true;
-            try
-            {
-                for (int i = rows.Count - 1; i >= 0; i--) if (!ids.Contains(rows[i].Session.Id)) rows.RemoveAt(i);
-                for (int i = 0; i < tasks.Length; i++)
-                {
-                    var row = rows.FirstOrDefault(r => r.Session.Id == tasks[i].Id);
-                    if (row is null) { row = new(tasks[i], previewPreferences.GetValueOrDefault(tasks[i].Id, defaultPreviewRows)); rows.Insert(i, row); }
-                    else { row.Update(tasks[i]); int position = rows.IndexOf(row); if (position != i) rows.Move(position, i); }
-                }
-            }
-            finally { updatingTaskRows = false; }
-            TaskCount.Text = $"{tasks.Count(t => !t.IsFinished)} 个运行中 · {tasks.Length} 个任务";
-            if (selectedId is not null && !ids.Contains(selectedId)) ClearSelection();
-            string? wanted = pendingId ?? selectedId;
-            var target = rows.FirstOrDefault(r => r.Session.Id == wanted);
-            if (target is not null) { TaskList.SelectedItem = target; pendingId = null; }
-            if (selectedId is not null && tasks.FirstOrDefault(s => s.Id == selectedId) is { } info) UpdateDetails(info);
+            knownTasks = await client.ListAllAsync(closing.Token);
+            var ids = knownTasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+            bool visibilityChanged = hiddenTaskIds.RemoveWhere(id => !ids.Contains(id)) > 0;
+            foreach (string id in previewPreferences.Keys.Where(id => !ids.Contains(id)).ToArray()) previewPreferences.Remove(id);
+            // Explicit task activation (e.g. a notification click) makes that
+            // task visible again without restoring unrelated hidden cards.
+            if (pendingId is not null && ids.Contains(pendingId)) visibilityChanged |= hiddenTaskIds.Remove(pendingId);
+            UpdateTaskRows();
+            if (visibilityChanged) SavePreferences();
             var source = client;
             var visibleRows = Descendants<OutputPreview>(TaskList).Select(p => p.DataContext).OfType<TaskRow>().ToHashSet();
             await Task.WhenAll(rows.Where(r => !r.Session.IsFinished || visibleRows.Contains(r)).Select(async row =>
@@ -178,6 +170,32 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch (Exception ex) { ConnectionStatus.Text = "刷新失败：" + ex.Message + "；点击刷新可重新连接。"; }
         finally { refreshing = false; }
+    }
+    private void UpdateTaskRows()
+    {
+        var tasks = knownTasks.Where(t => !hiddenTaskIds.Contains(t.Id)).ToArray();
+        var ids = tasks.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        if (selectedId is not null && !ids.Contains(selectedId)) ClearSelection();
+        updatingTaskRows = true;
+        try
+        {
+            for (int i = rows.Count - 1; i >= 0; i--) if (!ids.Contains(rows[i].Session.Id)) rows.RemoveAt(i);
+            for (int i = 0; i < tasks.Length; i++)
+            {
+                var row = rows.FirstOrDefault(r => r.Session.Id == tasks[i].Id);
+                if (row is null) { row = new(tasks[i], previewPreferences.GetValueOrDefault(tasks[i].Id, defaultPreviewRows)); rows.Insert(i, row); }
+                else { row.Update(tasks[i]); int position = rows.IndexOf(row); if (position != i) rows.Move(position, i); }
+            }
+        }
+        finally { updatingTaskRows = false; }
+        TaskCount.Text = $"{tasks.Count(t => !t.IsFinished)} 个运行中 · {tasks.Length} 个可见任务";
+        int hiddenCount = knownTasks.Length - tasks.Length;
+        RestoreHiddenButton.Content = $"恢复隐藏任务（{hiddenCount}）";
+        RestoreHiddenButton.Visibility = hiddenCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        string? wanted = pendingId ?? selectedId;
+        var target = rows.FirstOrDefault(r => r.Session.Id == wanted);
+        if (target is not null) { TaskList.SelectedItem = target; pendingId = null; }
+        if (selectedId is not null && tasks.FirstOrDefault(s => s.Id == selectedId) is { } info) UpdateDetails(info);
     }
     private static string StateName(SessionState state) => state switch
     {
@@ -390,6 +408,42 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
     private void DetailsToggle_Click(object sender, RoutedEventArgs e) { ApplyLayout(); SavePreferences(); }
     private void Overview_Click(object sender, RoutedEventArgs e) { pendingId = null; ClearSelection(); }
+    private MenuFlyout CardActions(TaskRow row)
+    {
+        var menu = new MenuFlyout();
+        var hide = new MenuFlyoutItem { Text = "隐藏此任务" };
+        hide.Click += (_, _) => HideTasks(row, older: false);
+        var hideOlder = new MenuFlyoutItem { Text = "隐藏比此任务更早的任务", IsEnabled = knownTasks.Any(t => t.StartedAt < row.Session.StartedAt && !hiddenTaskIds.Contains(t.Id)) };
+        ToolTipService.SetToolTip(hideOlder, "按启动时间隐藏更早的任务，保留此任务。任务继续运行，日志仍然保留。");
+        hideOlder.Click += (_, _) => HideTasks(row, older: true);
+        menu.Items.Add(hide); menu.Items.Add(hideOlder);
+        return menu;
+    }
+    private void CardActions_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TaskRow row } element) CardActions(row).ShowAt(element);
+    }
+    private void TaskCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: TaskRow row } element) return;
+        CardActions(row).ShowAt(element, new FlyoutShowOptions { Position = e.GetPosition(element) }); e.Handled = true;
+    }
+    private void HideTasks(TaskRow row, bool older)
+    {
+        // Store row preferences before removing their view models.
+        RememberPreviewRows();
+        int before = hiddenTaskIds.Count;
+        if (older) hiddenTaskIds.UnionWith(knownTasks.Where(t => t.StartedAt < row.Session.StartedAt).Select(t => t.Id));
+        else hiddenTaskIds.Add(row.Session.Id);
+        if (pendingId is not null && hiddenTaskIds.Contains(pendingId)) pendingId = null;
+        UpdateTaskRows();
+        if (SavePreferences()) ConnectionStatus.Text = $"已隐藏 {hiddenTaskIds.Count - before} 个任务卡片。任务与日志保留，可点击“恢复隐藏任务”重新显示。";
+    }
+    private void RestoreHidden_Click(object sender, RoutedEventArgs e)
+    {
+        hiddenTaskIds.Clear(); UpdateTaskRows();
+        if (SavePreferences()) ConnectionStatus.Text = "已恢复所有隐藏任务卡片。";
+    }
     private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != VirtualKey.Escape || notificationUpdating || selectedId is null) return;
@@ -407,6 +461,7 @@ public partial class MainWindow : Window
     private void ChangeAllPreviews(int delta)
     {
         defaultPreviewRows = Math.Clamp(defaultPreviewRows + delta, 1, 30);
+        foreach (string id in previewPreferences.Keys.ToArray()) previewPreferences[id] = Math.Clamp(previewPreferences[id] + delta, 1, 30);
         foreach (var row in rows) row.PreviewRows += delta;
         PreviewDefaultLabel.Text = $"{defaultPreviewRows} 行"; SavePreferences();
     }
@@ -444,20 +499,30 @@ public partial class MainWindow : Window
                 DetailsToggle.IsChecked = settings.DetailsVisible; FollowToggle.IsChecked = settings.FollowOutput;
                 defaultPreviewRows = Math.Clamp(settings.PreviewRows, 1, 30);
                 previewPreferences = settings.TaskPreviewRows ?? [];
+                hiddenTaskIds = (settings.HiddenTaskIds ?? []).ToHashSet(StringComparer.Ordinal);
                 PreviewDefaultLabel.Text = $"{defaultPreviewRows} 行";
             }
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { }
     }
-    private void SavePreferences()
+    private void RememberPreviewRows()
+    {
+        foreach (var row in rows)
+        {
+            if (row.PreviewRows == defaultPreviewRows) previewPreferences.Remove(row.Session.Id);
+            else previewPreferences[row.Session.Id] = row.PreviewRows;
+        }
+    }
+    private bool SavePreferences()
     {
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(PreferencesPath)!);
-            previewPreferences = rows.Where(r => r.PreviewRows != defaultPreviewRows).ToDictionary(r => r.Session.Id, r => r.PreviewRows);
-            File.WriteAllText(PreferencesPath, JsonSerializer.Serialize(new Preferences(DetailsToggle.IsChecked == true, FollowToggle.IsChecked == true, defaultPreviewRows, previewPreferences)));
+            RememberPreviewRows();
+            File.WriteAllText(PreferencesPath, JsonSerializer.Serialize(new Preferences(DetailsToggle.IsChecked == true, FollowToggle.IsChecked == true, defaultPreviewRows, previewPreferences, hiddenTaskIds.Order(StringComparer.Ordinal).ToArray())));
+            return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { ConnectionStatus.Text = "视图设置未保存：" + ex.Message; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { ConnectionStatus.Text = "视图设置未保存：" + ex.Message; return false; }
     }
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hwnd);
@@ -479,6 +544,7 @@ public partial class MainWindow : Window
             detailsVisible = DetailsPanel.Visibility == Visibility.Visible,
             selectedTask = selectedId, overview = ContentGrid.Visibility == Visibility.Collapsed,
             cardsWidth = TaskList.ActualWidth, contentVisible = ContentGrid.Visibility == Visibility.Visible,
+            visibleTasks = rows.Select(r => r.Session.Id).ToArray(), hiddenTasks = hiddenTaskIds.Order(StringComparer.Ordinal).ToArray(),
             previews = Descendants<OutputPreview>(TaskList).Select(p => p.Diagnostics()).ToArray(),
             packageFamily = ShellTrack.Windows.PackageIdentity.FamilyName,
             physicalWidth = AppWindow.Size.Width, physicalHeight = AppWindow.Size.Height
