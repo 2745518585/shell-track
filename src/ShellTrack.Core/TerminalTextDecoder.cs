@@ -11,7 +11,7 @@ internal sealed class TerminalTextDecoder
     private readonly StringBuilder control = new();
     private bool lineHasText;
 
-    public void Append(ReadOnlySpan<byte> bytes, Action<char> consume)
+    public void Append(ReadOnlySpan<byte> bytes, Action<char> consume, Action<char, string>? sequence = null)
     {
         if (bytes.IsEmpty) return;
         char[] chars = ArrayPool<char>.Shared.Rent(Encoding.UTF8.GetMaxCharCount(bytes.Length));
@@ -24,16 +24,17 @@ internal sealed class TerminalTextDecoder
                 {
                     control.Clear();
                     escapeState = c == '[' ? 2 : c == ']' ? 3 : c is >= '\x20' and <= '\x2f' ? 5 : 0;
+                    if (escapeState == 0) sequence?.Invoke(c, "ESC");
                     continue;
                 }
                 if (escapeState == 2)
                 {
                     if (c is >= '@' and <= '~')
                     {
-                        // ConPTY may replace a line break with a move to the next
-                        // row. Preserve that boundary in this append-only log view.
-                        // This intentionally does not emulate arbitrary cursor edits.
-                        if (c is 'H' or 'f' && lineHasText)
+                        // Cursor-aware views receive the edit itself. Stream-only
+                        // consumers retain a boundary when ConPTY moves to a row's start.
+                        if (sequence is not null) sequence(c, control.ToString());
+                        else if (c is 'H' or 'f' && lineHasText)
                         {
                             string[] position = control.ToString().Split(';');
                             if (position.Length < 2 || position[1] is "" or "1")

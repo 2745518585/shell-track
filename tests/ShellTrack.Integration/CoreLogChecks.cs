@@ -17,10 +17,33 @@ internal static class CoreLogChecks
         check(log.LastLine == "last", "最新行预览读取当前未结束行");
         var cursorLog = new TextLog();
         foreach (byte value in Encoding.UTF8.GetBytes("中文\x1b[8;1Hnext\n")) cursorLog.Append(new byte[] { value });
-        check(cursorLog.GetLines()[0].Text == "中文" && cursorLog.GetLines()[1].Text == "next", "ConPTY 绝对行定位不会把相邻输出粘成一行");
+        check(cursorLog.GetLines()[0].Text == "中文" && cursorLog.GetLines()[7].Text == "next", "ConPTY 绝对行定位保留行位置且不会把相邻输出粘成一行");
         var cursorPreview = new LatestLinePreview();
         cursorPreview.Append(Encoding.UTF8.GetBytes("中文\x1b[8;1Hnext\n"));
         check(cursorPreview.LastLine == "next", "ConPTY 光标定位后的卡片预览保留最新一行");
+
+        string redraw = "PowerShell\r\nPS> \x1b[93me\x1b[97mexit\x1b[2;6H\b\x1b[93mec\x1b[97mho 0\x1b[2;5Hecho 0\r\n0\r\nPS> exit\r\n";
+        var edited = new TextLog();
+        foreach (byte value in Encoding.UTF8.GetBytes(redraw)) edited.Append(new byte[] { value });
+        check(edited.GetLines().Select(line => line.Text).SequenceEqual(new[] { "PowerShell", "PS> echo 0", "0", "PS> exit", "" }), "PSReadLine 预测与逐字重绘只保留最终命令和一次输出");
+        var editedPreview = new LatestLinePreview(); editedPreview.Append(Encoding.UTF8.GetBytes(redraw));
+        check(editedPreview.LastLine == "PS> exit", "任务摘要也正确解析交互式重绘");
+        var erase = new TextLog(); erase.Append(Encoding.UTF8.GetBytes("progress 100%\rOK\x1b[K\n"));
+        check(erase.GetLines()[0].Text == "OK", "擦除行尾删除被短文本覆盖后的旧内容");
+        erase.Append(Encoding.UTF8.GetBytes("abcdef\x1b[3DXY\x1b[1GZ"));
+        check(erase.LastLine == "ZbcXYf", "相对光标移动和绝对列定位覆写正确字符");
+        var wide = new TextLog(); wide.Append(Encoding.UTF8.GetBytes("中文> old\x1b[1;7HNEW\x1b[K"));
+        check(wide.LastLine == "中文> NEW", "中文宽字符使用终端列宽而非 UTF-16 下标定位");
+        var scrolled = new TextLog(terminalRows: 3); scrolled.Append(Encoding.UTF8.GetBytes("one\ntwo\nthree\nfour\x1b[2;1HEDIT\x1b[K"));
+        check(scrolled.GetLines().Select(line => line.Text).SequenceEqual(new[] { "one", "two", "EDIT", "four" }), "滚屏后的绝对行定位保留历史并编辑当前视口");
+        var cleared = new TextLog(); cleared.Append(Encoding.UTF8.GetBytes("old\nold2\x1b[2J\x1b[Hnew\x1b[K"));
+        check(cleared.GetLines()[0].Text == "new" && !cleared.ToString().Contains("old"), "清屏重绘不混入屏幕上的旧文本");
+        var saved = new TextLog(); saved.Append(Encoding.UTF8.GetBytes("abc\x1b[s\nnext\x1b[uX"));
+        check(saved.GetLines()[0].Text == "abcX" && saved.GetLines()[1].Text == "next", "保存和恢复光标不会将重绘追加到最后一行");
+        var combining = new TextLog(); combining.Append(Encoding.UTF8.GetBytes("e\u0301> old\x1b[1;4HNEW"));
+        check(combining.LastLine == "e\u0301> NEW", "组合附加符不占用额外光标列");
+        var eraseCharacters = new TextLog(); eraseCharacters.Append(Encoding.UTF8.GetBytes("abcde\r\x1b[2C\x1b[2XZ"));
+        check(eraseCharacters.LastLine == "abZ e", "擦除字符保持光标位置并保留后续字符");
 
         var carriage = new TextLog();
         carriage.Append(Encoding.UTF8.GetBytes("abc\rxy"));

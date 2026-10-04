@@ -1,49 +1,27 @@
-using System.Text;
-
 namespace ShellTrack.Core;
 
-// Unlike a retained log, a card preview is bounded even for an unlimited line.
+// Use the same cursor-aware projection as the viewer so prompt redraws don't
+// become a different, duplicated summary in task metadata.
 public sealed class LatestLinePreview
 {
-    private readonly TerminalTextDecoder decoder = new();
-    private readonly StringBuilder current = new();
+    private readonly TextLog log;
     private readonly int characterLimit;
-    private long cursor, lineLength;
-    private string previous = "";
-
-    public LatestLinePreview(int characterLimit = 400)
+    public LatestLinePreview(int characterLimit = 400, int terminalRows = 30)
     {
         if (characterLimit < 2) throw new ArgumentOutOfRangeException(nameof(characterLimit));
         this.characterLimit = characterLimit;
+        log = new TextLog(Math.Max(32768, characterLimit), trimCurrentLine: true, terminalRows: terminalRows);
     }
-
-    public string LastLine => current.Length == 0 ? previous : FormatCurrent();
-    public void Append(ReadOnlySpan<byte> bytes) => decoder.Append(bytes, AppendCharacter);
-
-    private void AppendCharacter(char c)
+    public string LastLine
     {
-        if (c == '\r') { cursor = 0; return; }
-        if (c == '\b') { cursor = Math.Max(0, cursor - 1); return; }
-        if (c == '\n')
+        get
         {
-            if (current.Length > 0) previous = FormatCurrent();
-            current.Clear(); cursor = lineLength = 0;
-            return;
+            string value = log.LastLine;
+            if (value.Length <= characterLimit) return value;
+            int count = characterLimit - 1;
+            if (char.IsHighSurrogate(value[count - 1])) count--;
+            return value[..count] + "…";
         }
-        if (cursor < characterLimit)
-        {
-            if (cursor < current.Length) current[(int)cursor] = c;
-            else current.Append(c);
-        }
-        cursor++;
-        lineLength = Math.Max(lineLength, cursor);
     }
-
-    private string FormatCurrent()
-    {
-        if (lineLength <= characterLimit) return current.ToString();
-        int count = characterLimit - 1;
-        if (char.IsHighSurrogate(current[count - 1])) count--;
-        return current.ToString(0, count) + "…";
-    }
+    public void Append(ReadOnlySpan<byte> bytes) => log.Append(bytes);
 }

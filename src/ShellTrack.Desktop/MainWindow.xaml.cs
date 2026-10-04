@@ -38,7 +38,7 @@ public partial class MainWindow : Window
 
     private sealed class TaskRow(SessionInfo initial, int previewRows) : INotifyPropertyChanged
     {
-        private TextLog preview = new(65536, trimCurrentLine: true);
+        private TextLog preview = new(65536, trimCurrentLine: true, terminalRows: initial.Request.Rows);
         private long previewOffset = -1;
         private bool previewNumbersKnown = true;
         private IReadOnlyList<LogRow> previewLines = [new(0, initial.OutputLength == 0 ? initial.IsFinished ? "没有可显示的输出" : "等待输出…" : "正在读取输出…")];
@@ -74,7 +74,7 @@ public partial class MainWindow : Window
             if (previewOffset < 0 || end - previewOffset > 65536)
             {
                 long start = Math.Max(0, end - 65536);
-                preview = new TextLog(65536, trimCurrentLine: true);
+                preview = new TextLog(65536, trimCurrentLine: true, terminalRows: Session.Request.Rows);
                 previewOffset = start; previewNumbersKnown = start == 0;
                 if (start > 0) preview.ResetAfterGap();
             }
@@ -82,7 +82,7 @@ public partial class MainWindow : Window
             var bytes = Convert.FromBase64String(page.Data);
             if (page.Gap)
             {
-                preview = new TextLog(65536, trimCurrentLine: true); previewNumbersKnown = false;
+                preview = new TextLog(65536, trimCurrentLine: true, terminalRows: Session.Request.Rows); previewNumbersKnown = false;
                 PreviewNotice = bytes.Length == 0 ? "输出尾部已不可用，显示最后行摘要。" : "部分输出已不可用，显示可用尾部。";
             }
             preview.Append(bytes);
@@ -215,7 +215,7 @@ public partial class MainWindow : Window
         ApplyLayout();
         var cancellation = selection.Token; var source = client; string id = selectedId;
         UpdateDetails(row.Session); logRows.Clear();
-        var text = new TextLog(256_000); selectedLog = text; var watch = Stopwatch.StartNew();
+        var text = new TextLog(256_000, terminalRows: row.Session.Request.Rows); selectedLog = text; var watch = Stopwatch.StartNew();
         Action<long, long> gap = (from, to) =>
         {
             if (cancellation.IsCancellationRequested || selectedId != id) return;

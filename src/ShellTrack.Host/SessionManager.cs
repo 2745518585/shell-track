@@ -27,7 +27,7 @@ public sealed class SessionManager : IDisposable
         public SessionInfo Info = info;
         public readonly CreateSessionRequest InitialRequest = initialRequest ?? info.Request;
         public readonly string Directory = directory;
-        public readonly LatestLinePreview Preview = new();
+        public readonly LatestLinePreview Preview = new(terminalRows: info.Request.Rows);
         public OutputNotificationMatcher Matcher = new(info.Request.NotifyPatterns);
         public DateTimeOffset LastCheckpoint;
         public ITerminalSession? Terminal;
@@ -64,7 +64,7 @@ public sealed class SessionManager : IDisposable
                 // the last checkpoint, unless a newer live-overflow preview exists.
                 if (recorded > 0 && (string.IsNullOrEmpty(info.LatestOutputLine) || recorded > info.OutputLength))
                 {
-                    var preview = new LatestLinePreview();
+                    var preview = new LatestLinePreview(terminalRows: info.Request.Rows);
                     using var logFile = File.OpenRead(output);
                     var buffer = new byte[16384];
                     int count;
