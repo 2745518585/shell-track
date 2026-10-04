@@ -67,6 +67,7 @@ try
         Check((await client.GetAsync(interactive.Id)).ExitCode == 9, "交互退出码");
         Check((await client.GetAsync(interactive.Id)).Columns == 90, "终端尺寸同步");
     }
+    await ConsoleEncodingChecks.RunAsync(client, root, configuration, Check, deadline.Token);
     var detached = await client.CreateAsync(Request("cmd", null) with { DisconnectPolicy = DisconnectPolicy.Terminate });
     using (var socket = await client.OpenTerminalAsync(detached.Id, deadline.Token)) socket.Abort();
     await Output(client, detached.Id);

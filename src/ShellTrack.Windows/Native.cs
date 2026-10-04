@@ -54,4 +54,8 @@ internal static class Native
     [DllImport("kernel32.dll")] internal static extern IntPtr GetStdHandle(int id);
     [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool GetConsoleMode(IntPtr handle, out uint mode);
     [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool SetConsoleMode(IntPtr handle, uint mode);
+    [DllImport("kernel32.dll")] internal static extern uint GetConsoleCP();
+    [DllImport("kernel32.dll")] internal static extern uint GetConsoleOutputCP();
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool SetConsoleCP(uint codePage);
+    [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool SetConsoleOutputCP(uint codePage);
 }
