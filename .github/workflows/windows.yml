@@ -68,7 +68,7 @@ jobs:
         run: ./scripts/test.ps1 -Configuration Release -NoBuild
       - name: Upload test diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-test-diagnostics
           path: |
@@ -96,7 +96,7 @@ jobs:
           ./scripts/verify-release-assets.ps1 -Directory artifacts/ci-release-assets -Tag "v$env:CI_PACKAGE_VERSION" -Commit $env:CI_COMMIT
       - name: Upload x64 bundle
         if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shelltrack-win-x64
           path: artifacts/ci-win-x64/
@@ -104,7 +104,7 @@ jobs:
           retention-days: 14
       - name: Upload installers and public certificate
         if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shelltrack-installers
           path: artifacts/ci-installers/
@@ -112,7 +112,7 @@ jobs:
           retention-days: 14
       - name: Upload tested ZIP and complete release attachment set
         if: github.event_name == 'workflow_dispatch' && inputs.publish_bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shelltrack-release-fixture
           path: artifacts/ci-release-assets/
