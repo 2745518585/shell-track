@@ -24,10 +24,11 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<TaskRow> rows = [];
     private readonly ObservableCollection<LogRow> logRows = [];
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private readonly DispatcherTimer logTimer = new() { Interval = TimeSpan.FromMilliseconds(80) };
     private readonly CancellationTokenSource closing = new();
     private CancellationTokenSource? selection;
     private TrayIcon? tray;
-    private bool refreshing, exit, notificationUpdating, updatingTaskRows;
+    private bool refreshing, exit, notificationUpdating, updatingTaskRows, logDirty;
     private string? selectedId, pendingId;
     private TextLog? selectedLog;
     private int defaultPreviewRows = 5;
@@ -47,8 +48,22 @@ public partial class MainWindow : Window
         private IReadOnlyList<LogRow> previewLines = [new(0, initial.OutputLength == 0 ? initial.IsFinished ? "没有可显示的输出" : "等待输出…" : "正在读取输出…")];
         private int visibleRows = Math.Clamp(previewRows, 1, 30);
         public SessionInfo Session { get; private set; } = initial;
+        public Brush StatusBrush { get; private set; } = StatusColor(initial);
+        private static Brush StatusColor(SessionInfo session)
+        {
+            int rgb = session.State switch
+            {
+                SessionState.Failed => 0xd13438,
+                SessionState.Exited => session.ExitCode == 0 ? 0x16803c : 0xd13438,
+                SessionState.Starting or SessionState.Running => 0x0078d4,
+                SessionState.Stopping => 0xca7000,
+                _ => 0x808080
+            };
+            return new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+        }
         public string Title => TaskTitle(Session.Request);
-        public string Subtitle => $"{StateName(Session.State)} · {Session.StartedAt.LocalDateTime:MM-dd HH:mm:ss}" + (Session.ExitCode is null ? "" : $" · 退出码 {Session.ExitCode}");
+        public string StateLabel => StateName(Session.State) + (Session.ExitCode is null ? "" : $" · 退出码 {Session.ExitCode}");
+        public string Subtitle => $"{Session.Request.Shell} · {Session.StartedAt.LocalDateTime:MM-dd HH:mm:ss} · {DurationLabel(Session)}";
         public IReadOnlyList<LogRow> PreviewLines => previewLines;
         public string PreviewNotice { get; private set; } = "";
         public Visibility PreviewNoticeVisibility => PreviewNotice.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -65,7 +80,8 @@ public partial class MainWindow : Window
         public event PropertyChangedEventHandler? PropertyChanged;
         public void Update(SessionInfo session)
         {
-            if (Session == session) return;
+            if (Session == session) { if (!session.IsFinished) PropertyChanged?.Invoke(this, new(nameof(Subtitle))); return; }
+            if (Session.State != session.State || Session.ExitCode != session.ExitCode) StatusBrush = StatusColor(session);
             Session = session;
             if (preview.GetLines().Count == 0) RebuildPreview();
             PropertyChanged?.Invoke(this, new(null));
@@ -125,9 +141,10 @@ public partial class MainWindow : Window
         if (File.Exists(icon)) AppWindow.SetIcon(icon);
         TaskList.ItemsSource = rows; LogList.ItemsSource = logRows;
         ReadPreferences();
+        logTimer.Tick += (_, _) => FlushLog(); logTimer.Start();
         timer.Tick += async (_, _) => await Refresh();
         AppWindow.Closing += (_, e) => { if (!exit && tray is not null) { e.Cancel = true; AppWindow.Hide(); } };
-        Closed += (_, _) => { timer.Stop(); closing.Cancel(); selection?.Cancel(); tray?.Dispose(); client?.Dispose(); };
+        Closed += (_, _) => { timer.Stop(); logTimer.Stop(); closing.Cancel(); selection?.Cancel(); tray?.Dispose(); client?.Dispose(); };
         _ = Initialize();
     }
     private async Task Initialize()
@@ -192,6 +209,9 @@ public partial class MainWindow : Window
         int hiddenCount = knownTasks.Length - tasks.Length;
         RestoreHiddenButton.Content = $"恢复隐藏任务（{hiddenCount}）";
         RestoreHiddenButton.Visibility = hiddenCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyState.Visibility = tasks.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyTitle.Text = hiddenCount > 0 ? "任务已全部隐藏" : "还没有任务";
+        EmptyHint.Text = hiddenCount > 0 ? "点击顶部“恢复隐藏任务”重新显示。日志仍按原保留策略保存。" : "通过 shelltrack 启动命令或交互式 shell，输出会出现在这里。";
         string? wanted = pendingId ?? selectedId;
         var target = rows.FirstOrDefault(r => r.Session.Id == wanted);
         if (target is not null) { TaskList.SelectedItem = target; pendingId = null; }
@@ -202,6 +222,12 @@ public partial class MainWindow : Window
         SessionState.Starting => "正在启动", SessionState.Running => "运行中", SessionState.Stopping => "正在终止",
         SessionState.Exited => "已结束", SessionState.Failed => "失败", SessionState.Interrupted => "已中断", _ => state.ToString()
     };
+    private static string DurationLabel(SessionInfo session)
+    {
+        var duration = (session.EndedAt ?? DateTimeOffset.UtcNow) - session.StartedAt;
+        double seconds = Math.Max(0, duration.TotalSeconds);
+        return seconds < 60 ? $"{(int)seconds} 秒" : seconds < 3600 ? $"{(int)(seconds / 60)} 分 {(int)(seconds % 60)} 秒" : $"{(int)(seconds / 3600)} 小时 {(int)(seconds / 60 % 60)} 分";
+    }
     private void UpdateDetails(SessionInfo s)
     {
         LogTitle.Text = DetailTitle.Text = TaskTitle(s.Request);
@@ -233,7 +259,7 @@ public partial class MainWindow : Window
         ApplyLayout();
         var cancellation = selection.Token; var source = client; string id = selectedId;
         UpdateDetails(row.Session); logRows.Clear();
-        var text = new TextLog(256_000, terminalRows: row.Session.Request.Rows); selectedLog = text; var watch = Stopwatch.StartNew();
+        var text = new TextLog(256_000, terminalRows: row.Session.Request.Rows); selectedLog = text; logDirty = false;
         Action<long, long> gap = (from, to) =>
         {
             if (cancellation.IsCancellationRequested || selectedId != id) return;
@@ -246,14 +272,18 @@ public partial class MainWindow : Window
             await foreach (var bytes in source.FollowOutputAsync(id, cancellation: cancellation))
             {
                 if (cancellation.IsCancellationRequested || selectedId != id) return;
-                text.Append(bytes);
-                if (watch.ElapsedMilliseconds >= 100) { RenderLog(text); watch.Restart(); }
+                text.Append(bytes); logDirty = true;
             }
-            if (!cancellation.IsCancellationRequested && selectedId == id) RenderLog(text);
+            if (!cancellation.IsCancellationRequested && selectedId == id) FlushLog();
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { if (!cancellation.IsCancellationRequested) ConnectionStatus.Text = "读取失败：" + ex.Message; }
         finally { source.OutputGap -= gap; }
+    }
+    private void FlushLog()
+    {
+        if (!logDirty || selectedLog is null) return;
+        logDirty = false; RenderLog(selectedLog);
     }
     private void RenderLog(TextLog log)
     {
@@ -470,22 +500,34 @@ public partial class MainWindow : Window
         if (FollowToggle.IsChecked == true && logRows.Count > 0) LogList.ScrollIntoView(logRows[^1]);
         SavePreferences();
     }
+    private void LatestOutput_Click(object sender, RoutedEventArgs e)
+    {
+        FollowToggle.IsChecked = true; FlushLog();
+        if (logRows.Count > 0) LogList.ScrollIntoView(logRows[^1]);
+        SavePreferences();
+    }
     private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e) => ApplyLayout();
     private void ApplyLayout()
     {
         if (TaskColumn is null || DetailsColumn is null || OutputColumn is null) return;
         double width = RootGrid.ActualWidth;
         bool selected = selectedId is not null;
-        TaskColumn.Width = selected ? new GridLength(width < 900 ? 220 : 290) : new GridLength(1, GridUnitType.Star);
+        bool compact = width < 820;
+        bool stackedToolbar = width < 1150;
+        Grid.SetRow(ToolbarHost, stackedToolbar ? 1 : 0);
+        Grid.SetColumn(ToolbarHost, stackedToolbar ? 0 : 1);
+        Grid.SetColumnSpan(ToolbarHost, stackedToolbar ? 2 : 1);
+        TaskList.Visibility = selected && compact ? Visibility.Collapsed : Visibility.Visible;
+        TaskColumn.Width = selected ? new GridLength(compact ? 0 : width < 1100 ? 260 : 320) : new GridLength(1, GridUnitType.Star);
         OutputColumn.Width = selected ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        WorkspaceGrid.ColumnSpacing = selected ? 16 : 0;
+        WorkspaceGrid.ColumnSpacing = selected && !compact ? 16 : 0;
         ContentGrid.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
         OverviewButton.IsEnabled = DetailsToggle.IsEnabled = selected;
         RootGrid.Padding = new Thickness(width < 900 ? 16 : 24);
-        bool visible = selected && DetailsToggle.IsChecked == true && width >= 1100;
+        bool visible = selected && DetailsToggle.IsChecked == true && width >= 1320;
         DetailsColumn.Width = new GridLength(visible ? 280 : 0);
         DetailsPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(DetailsToggle, width < 1100 ? "加宽窗口后显示右侧详情" : "显示或收起任务详情");
+        ToolTipService.SetToolTip(DetailsToggle, width < 1320 ? "加宽窗口后显示右侧详情" : "显示或收起任务详情");
     }
     private string PreferencesPath => Path.Combine(dataRoot ?? ShellTrackClient.DefaultDataRoot, "desktop-settings.json");
     private void ReadPreferences()
@@ -543,6 +585,7 @@ public partial class MainWindow : Window
             width = RootGrid.ActualWidth, height = RootGrid.ActualHeight, readOnly = true, numberedLogs = true,
             detailsVisible = DetailsPanel.Visibility == Visibility.Visible,
             selectedTask = selectedId, overview = ContentGrid.Visibility == Visibility.Collapsed,
+            renderedLogRows = logRows.Count,
             cardsWidth = TaskList.ActualWidth, contentVisible = ContentGrid.Visibility == Visibility.Visible,
             visibleTasks = rows.Select(r => r.Session.Id).ToArray(), hiddenTasks = hiddenTaskIds.Order(StringComparer.Ordinal).ToArray(),
             previews = Descendants<OutputPreview>(TaskList).Select(p => p.Diagnostics()).ToArray(),
@@ -564,7 +607,7 @@ public partial class MainWindow : Window
     public void SelectTask(string id) { pendingId = id; _ = Refresh(); }
     private void ClearSelection()
     {
-        selection?.Cancel(); selectedId = null; selectedLog = null; logRows.Clear();
+        selection?.Cancel(); selectedId = null; selectedLog = null; logDirty = false; logRows.Clear();
         TaskList.SelectedItem = null;
         LogTitle.Text = DetailTitle.Text = "选择一个任务"; DetailStatus.Text = ""; LogSummary.Text = "选择左侧任务，查看实时输出和历史日志。";
         ActionsButton.IsEnabled = NotificationToggle.IsEnabled = false;

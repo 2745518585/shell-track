@@ -8,24 +8,26 @@
         <Grid.Resources>
             <x:Double x:Key="LogLineHeight">20</x:Double>
             <DataTemplate x:Key="LogLineTemplate">
-                <Grid ColumnSpacing="12" Padding="8,0,12,0" MinHeight="{StaticResource LogLineHeight}">
+                <Grid ColumnSpacing="8" Padding="6,0,10,0" MinHeight="{StaticResource LogLineHeight}">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="54" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding NumberLabel}" FontFamily="Cascadia Mono,Consolas" FontSize="13" LineHeight="{StaticResource LogLineHeight}" LineStackingStrategy="BlockLineHeight" TextAlignment="Right" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Top" />
-                    <TextBlock Grid.Column="1" Text="{Binding Text}" FontFamily="Cascadia Mono,Consolas" FontSize="13" LineHeight="{StaticResource LogLineHeight}" LineStackingStrategy="BlockLineHeight" TextWrapping="Wrap" IsTextSelectionEnabled="True" VerticalAlignment="Top" />
+                    <TextBlock Text="{Binding NumberLabel}" FontFamily="Consolas" FontSize="13" LineHeight="{StaticResource LogLineHeight}" LineStackingStrategy="BlockLineHeight" TextAlignment="Right" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Top" />
+                    <TextBlock Grid.Column="1" Text="{Binding Text}" FontFamily="Consolas" FontSize="13" LineHeight="{StaticResource LogLineHeight}" LineStackingStrategy="BlockLineHeight" TextWrapping="Wrap" IsTextSelectionEnabled="True" VerticalAlignment="Top" />
                 </Grid>
             </DataTemplate>
         </Grid.Resources>
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <Grid ColumnSpacing="16">
+        <Grid x:Name="HeaderGrid" ColumnSpacing="16" RowSpacing="10">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="Shell Track" Style="{StaticResource TitleTextBlockStyle}" />
-                <StackPanel Orientation="Horizontal" Spacing="12">
+                <StackPanel Spacing="2">
                     <TextBlock x:Name="TaskCount" Text="任务与输出" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     <HyperlinkButton x:Name="RestoreHiddenButton" Content="恢复隐藏任务" Click="RestoreHidden_Click" Visibility="Collapsed" Padding="0" ToolTipService.ToolTip="重新显示所有隐藏的任务卡片" />
                 </StackPanel>
             </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <ScrollViewer x:Name="ToolbarHost" Grid.Column="1" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button x:Name="OverviewButton" Content="总览" Click="Overview_Click" IsEnabled="False" ToolTipService.ToolTip="取消选择，同时监看所有任务（Esc）" />
                 <TextBlock Text="卡片预览" VerticalAlignment="Center" FontSize="12" />
                 <Button Content="−" Click="PreviewDefaultLess_Click" ToolTipService.ToolTip="减少所有卡片的可见行数" />
@@ -35,6 +37,7 @@
                 <Button Content="刷新" Click="Refresh_Click" />
                 <Button Content="退出" Click="Exit_Click" ToolTipService.ToolTip="退出查看器，后台任务继续运行" />
             </StackPanel>
+            </ScrollViewer>
         </Grid>
         <Grid Grid.Row="1" x:Name="WorkspaceGrid" ColumnSpacing="0">
             <Grid.ColumnDefinitions><ColumnDefinition x:Name="TaskColumn" Width="*" /><ColumnDefinition x:Name="OutputColumn" Width="0" /></Grid.ColumnDefinitions>
@@ -47,7 +50,13 @@
                 <ListView.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Spacing="6" Padding="2,6" RightTapped="TaskCard_RightTapped">
-                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+                            <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4" Padding="8,3" HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Ellipse Width="7" Height="7" Fill="{Binding StatusBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding StateLabel}" FontSize="12" FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Title}" />
                             <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                             <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="4" Padding="0,6">
                                 <local:OutputPreview Lines="{Binding PreviewLines}" Rows="{Binding PreviewRows}" LineHeight="{StaticResource LogLineHeight}" LineTemplate="{StaticResource LogLineTemplate}" />
@@ -65,6 +74,10 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
+            <StackPanel x:Name="EmptyState" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320" Margin="20" IsHitTestVisible="False">
+                <TextBlock x:Name="EmptyTitle" Text="还没有任务" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock x:Name="EmptyHint" Text="通过 shelltrack 启动命令或交互式 shell，输出会出现在这里。" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
             <Grid Grid.Column="1" x:Name="ContentGrid" ColumnSpacing="0" Visibility="Collapsed">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition x:Name="DetailsColumn" Width="0" /></Grid.ColumnDefinitions>
                 <Grid RowSpacing="10">
@@ -77,6 +90,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                             <CheckBox x:Name="FollowToggle" Content="跟随输出" IsChecked="True" Click="FollowToggle_Click" />
+                            <Button Content="最新" Click="LatestOutput_Click" Padding="8,4" ToolTipService.ToolTip="回到输出末尾并继续跟随" />
                             <CheckBox x:Name="NotificationToggle" Content="完成通知" IsEnabled="False" Click="NotificationToggle_Click" ToolTipService.ToolTip="在任务结束前开启或关闭通知" />
                         </StackPanel>
                         <Button Grid.Column="1" x:Name="ActionsButton" Content="操作" IsEnabled="False">

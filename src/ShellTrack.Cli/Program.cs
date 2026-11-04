@@ -95,7 +95,7 @@ static async Task<int> Run(string[] arguments)
         case "delete": await client.DeleteAsync(id!); return 0;
         case "shutdown": await client.ShutdownAsync(); return 0;
         case "show":
-            using (var mode = new ConsoleModeScope())
+            using (var mode = new ConsoleModeScope(configureInput: false))
                 await CopyOutput(client, id!, Console.OpenStandardOutput());
             return 0;
         case "export":
@@ -188,6 +188,13 @@ static async Task CopyOutput(ShellTrackClient client, string id, Stream destinat
 }
 static (int Columns, int Rows) Size()
 {
-    try { return (Math.Clamp(Console.WindowWidth, 1, 1000), Math.Clamp(Console.WindowHeight, 1, 1000)); }
+    // Redirected consoles can report 0x0. A one-column ConPTY would wrap every
+    // character and distort tables and progress output captured through pipes.
+    if (Console.IsOutputRedirected) return (120, 30);
+    try
+    {
+        int columns = Console.WindowWidth, rows = Console.WindowHeight;
+        return columns > 0 && rows > 0 ? (Math.Min(columns, 1000), Math.Min(rows, 1000)) : (120, 30);
+    }
     catch (IOException) { return (120, 30); }
 }

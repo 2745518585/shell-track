@@ -12,9 +12,9 @@ public sealed class ConsoleModeScope : IDisposable
     private readonly uint inputCodePage, outputCodePage;
     private Encoding? inputEncoding, outputEncoding;
     private bool disposed;
-    public ConsoleModeScope()
+    public ConsoleModeScope(bool configureInput = true)
     {
-        hasInput = Native.GetConsoleMode(input, out inputMode);
+        hasInput = configureInput && Native.GetConsoleMode(input, out inputMode);
         hasOutput = Native.GetConsoleMode(output, out outputMode);
         inputCodePage = hasInput ? Native.GetConsoleCP() : 0;
         outputCodePage = hasOutput ? Native.GetConsoleOutputCP() : 0;
@@ -27,7 +27,7 @@ public sealed class ConsoleModeScope : IDisposable
             if (hasOutput) { outputEncoding = Console.OutputEncoding; Console.OutputEncoding = new UTF8Encoding(false); }
             // VT input, no line buffering/echo/processed Ctrl+C, no Quick Edit pause.
             if (hasInput && !Native.SetConsoleMode(input, (inputMode | 0x200 | 0x80) & ~(0x1u | 0x2u | 0x4u | 0x40u))) throw new Win32Exception(Marshal.GetLastWin32Error());
-            if (hasOutput && !Native.SetConsoleMode(output, outputMode | 0x4 | 0x8)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (hasOutput && !Native.SetConsoleMode(output, outputMode | 0x1 | 0x4 | 0x8)) throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         catch { Dispose(); throw; }
     }

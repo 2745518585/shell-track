@@ -164,6 +164,8 @@ try
     await cli.WaitForExitAsync(deadline.Token);
     Check(cli.ExitCode == 7 && (await stdout).Contains("CLI_OK"), "CLI 真实输出与退出码透传");
     await stderr;
+    var pipedSession = (await client.ListAllAsync()).Single(s => s.Request.Command == "Write-Output 'CLI_OK'; exit 7");
+    Check(pipedSession.Request.Columns == 120 && pipedSession.Request.Rows == 30, "重定向 CLI 输出使用可读的终端尺寸，不缩成一列");
 
     Check((await client.HealthAsync()).SupportsRawArguments, "后台明确声明原始 shell 参数能力");
     await ExpectStatus(() => client.CreateAsync(Request("cmd", "echo invalid") with { RawArguments = "/C echo invalid" }), HttpStatusCode.BadRequest, "拒绝同时指定脚本与原始参数");

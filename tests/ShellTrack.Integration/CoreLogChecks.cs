@@ -15,6 +15,12 @@ internal static class CoreLogChecks
         lines = log.GetLines();
         check(lines.Select(line => line.Number).SequenceEqual(new long[] { 1, 2, 3, 4 }) && lines[2].Text == "" && lines[3].Text == "last", "空行与跨块追加保持连续逻辑行号");
         check(log.LastLine == "last", "最新行预览读取当前未结束行");
+        var controlStrings = new TextLog();
+        foreach (byte value in Encoding.UTF8.GetBytes("a\x1bPignored\aSTILL_HIDDEN\x1b\\b\x1b_hidden image\x1b\\c\x1b^private\x1b\\d\x1bXsos\x1b\\e\u0090hidden\u009cf")) controlStrings.Append(new byte[] { value });
+        check(controlStrings.ToString() == "abcdef", "跨块终端控制字符串和图片负载不泄漏到日志正文");
+        var links = new TextLog();
+        links.Append(Encoding.UTF8.GetBytes("\x1b]8;;https://example.com\x1b\\链接\x1b]8;;\x1b\\\x1bPcancelled\x18OK"));
+        check(links.ToString() == "链接OK", "超链接保留可读文本，取消控制序列后正常显示输出");
         var cursorLog = new TextLog();
         foreach (byte value in Encoding.UTF8.GetBytes("中文\x1b[8;1Hnext\n")) cursorLog.Append(new byte[] { value });
         check(cursorLog.GetLines()[0].Text == "中文" && cursorLog.GetLines()[7].Text == "next", "ConPTY 绝对行定位保留行位置且不会把相邻输出粘成一行");
