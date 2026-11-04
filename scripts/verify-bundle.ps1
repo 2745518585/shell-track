@@ -3,7 +3,7 @@ param([Parameter(Mandatory)][string]$BundleDirectory)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $bundleRoot = [IO.Path]::GetFullPath($BundleDirectory)
-foreach ($required in @('shelltrack.exe', 'ShellTrack.Host.dll', 'desktop/ShellTrack.Desktop.exe', 'desktop/App.xbf', 'desktop/MainWindow.xbf', 'desktop/ShellTrack.Desktop.pri', 'desktop/assets/shelltrack.ico', 'desktop/assets/shelltrack.png', 'docs/protocol.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
+foreach ($required in @('shelltrack.exe', 'ShellTrack.Host.dll', 'desktop/ShellTrack.Desktop.exe', 'desktop/App.xbf', 'desktop/MainWindow.xbf', 'desktop/SelectableLogView.xbf', 'desktop/ShellTrack.Desktop.pri', 'desktop/assets/shelltrack.ico', 'desktop/assets/shelltrack.png', 'docs/protocol.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
     if (-not (Test-Path -LiteralPath (Join-Path $bundleRoot $required))) { throw "Bundle file missing: $required" }
 }
 $dataRoot = Join-Path $repoRoot ('work/bundle-tests-' + [Guid]::NewGuid().ToString('N'))

@@ -28,7 +28,7 @@ if (-not $BundleDirectory) {
 }
 $bundleRoot = [IO.Path]::GetFullPath($BundleDirectory)
 foreach ($required in @('shelltrack.exe', 'ShellTrack.Host.exe', 'shelltrack-cmd.exe', 'shelltrack-pwsh.exe', 'shelltrack-powershell.exe',
-    'coreclr.dll', 'hostfxr.dll', 'desktop/coreclr.dll', 'desktop/hostfxr.dll', 'desktop/App.xbf', 'desktop/MainWindow.xbf', 'desktop/ShellTrack.Desktop.pri')) {
+    'coreclr.dll', 'hostfxr.dll', 'desktop/coreclr.dll', 'desktop/hostfxr.dll', 'desktop/App.xbf', 'desktop/MainWindow.xbf', 'desktop/SelectableLogView.xbf', 'desktop/ShellTrack.Desktop.pri')) {
     if (-not (Test-Path -LiteralPath (Join-Path $bundleRoot $required))) { throw "A complete self-contained bundle is required; missing $required" }
 }
 

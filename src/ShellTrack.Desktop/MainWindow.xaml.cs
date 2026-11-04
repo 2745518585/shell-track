@@ -22,7 +22,6 @@ public partial class MainWindow : Window
     private ShellTrackClient? client;
     private readonly string? dataRoot;
     private readonly ObservableCollection<TaskRow> rows = [];
-    private readonly ObservableCollection<LogRow> logRows = [];
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer logTimer = new() { Interval = TimeSpan.FromMilliseconds(80) };
     private readonly CancellationTokenSource closing = new();
@@ -31,6 +30,7 @@ public partial class MainWindow : Window
     private bool refreshing, exit, notificationUpdating, updatingTaskRows, logDirty;
     private string? selectedId, pendingId;
     private TextLog? selectedLog;
+    private string logPhase = "idle";
     private int defaultPreviewRows = 5;
     private Dictionary<string, int> previewPreferences = [];
     private HashSet<string> hiddenTaskIds = new(StringComparer.Ordinal);
@@ -139,7 +139,12 @@ public partial class MainWindow : Window
         AppWindow.Resize(new global::Windows.Graphics.SizeInt32((int)Math.Round(1280 * scale), (int)Math.Round(800 * scale)));
         string icon = Path.Combine(AppContext.BaseDirectory, "assets", "shelltrack.ico");
         if (File.Exists(icon)) AppWindow.SetIcon(icon);
-        TaskList.ItemsSource = rows; LogList.ItemsSource = logRows;
+        TaskList.ItemsSource = rows;
+        LogView.TextSelected += (_, _) =>
+        {
+            FollowToggle.IsChecked = false;
+            ConnectionStatus.Text = "已暂停显示更新以保留选区。Ctrl+C 复制选中文字，点击“最新”恢复。";
+        };
         ReadPreferences();
         logTimer.Tick += (_, _) => FlushLog(); logTimer.Start();
         timer.Tick += async (_, _) => await Refresh();
@@ -258,7 +263,9 @@ public partial class MainWindow : Window
         selectedId = row.Session.Id; selection?.Cancel(); selection = CancellationTokenSource.CreateLinkedTokenSource(closing.Token);
         ApplyLayout();
         var cancellation = selection.Token; var source = client; string id = selectedId;
-        UpdateDetails(row.Session); logRows.Clear();
+        UpdateDetails(row.Session);
+        try { logPhase = "clearing"; LogView.Clear(); logPhase = "loading"; }
+        catch (Exception ex) { logPhase = ex.ToString(); ConnectionStatus.Text = "初始化日志视图失败：" + ex.Message; return; }
         var text = new TextLog(256_000, terminalRows: row.Session.Request.Rows); selectedLog = text; logDirty = false;
         Action<long, long> gap = (from, to) =>
         {
@@ -272,9 +279,9 @@ public partial class MainWindow : Window
             await foreach (var bytes in source.FollowOutputAsync(id, cancellation: cancellation))
             {
                 if (cancellation.IsCancellationRequested || selectedId != id) return;
-                text.Append(bytes); logDirty = true;
+                text.Append(bytes); logDirty = true; logPhase = "streaming";
             }
-            if (!cancellation.IsCancellationRequested && selectedId == id) FlushLog();
+            if (!cancellation.IsCancellationRequested && selectedId == id) { FlushLog(); logPhase = "complete"; }
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { if (!cancellation.IsCancellationRequested) ConnectionStatus.Text = "读取失败：" + ex.Message; }
@@ -282,7 +289,7 @@ public partial class MainWindow : Window
     }
     private void FlushLog()
     {
-        if (!logDirty || selectedLog is null) return;
+        if (!logDirty || selectedLog is null || LogView.IsSelecting) return;
         logDirty = false; RenderLog(selectedLog);
     }
     private void RenderLog(TextLog log)
@@ -290,16 +297,7 @@ public partial class MainWindow : Window
         var lines = log.GetLines();
         const int maximumRows = 10_000;
         int start = Math.Max(0, lines.Count - maximumRows);
-        long first = lines.Count == 0 ? 0 : lines[start].Number;
-        if (logRows.Count > 0 && logRows[0].Number != first) logRows.Clear();
-        for (int i = start; i < lines.Count; i++)
-        {
-            int index = i - start;
-            if (index < logRows.Count) logRows[index].Update(lines[i].Text);
-            else logRows.Add(new(lines[i].Number, lines[i].Text));
-        }
-        while (logRows.Count > lines.Count - start) logRows.RemoveAt(logRows.Count - 1);
-        if (FollowToggle.IsChecked == true && logRows.Count > 0) LogList.ScrollIntoView(logRows[^1], ScrollIntoViewAlignment.Default);
+        LogView.SetLines(lines.Skip(start).ToArray(), FollowToggle.IsChecked == true);
     }
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
@@ -405,18 +403,9 @@ public partial class MainWindow : Window
     private void CopyLog()
     {
         if (selectedLog is null) return;
-        var package = new DataPackage(); package.SetText(selectedLog.ToString()); Clipboard.SetContent(package);
-        ConnectionStatus.Text = "已复制当前日志视图。";
-    }
-    private void LogList_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key != VirtualKey.C || !Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
-        // TextBlock handles copying a text selection; otherwise copy the selected logical line.
-        if (e.OriginalSource is TextBlock) return;
-        if (LogList.SelectedItem is LogRow row)
-        {
-            var package = new DataPackage(); package.SetText(row.Text); Clipboard.SetContent(package); e.Handled = true;
-        }
+        bool selected = LogView.HasSelection;
+        var package = new DataPackage(); package.SetText(selected ? LogView.SelectedText : LogView.Text); Clipboard.SetContent(package);
+        ConnectionStatus.Text = selected ? "已复制选中文字。" : "已复制当前日志视图。";
     }
     private async Task Operate(Func<Task> action)
     {
@@ -497,13 +486,13 @@ public partial class MainWindow : Window
     }
     private void FollowToggle_Click(object sender, RoutedEventArgs e)
     {
-        if (FollowToggle.IsChecked == true && logRows.Count > 0) LogList.ScrollIntoView(logRows[^1]);
+        if (FollowToggle.IsChecked == true) { LogView.ClearSelection(); FlushLog(); LogView.ScrollToEnd(); }
         SavePreferences();
     }
     private void LatestOutput_Click(object sender, RoutedEventArgs e)
     {
-        FollowToggle.IsChecked = true; FlushLog();
-        if (logRows.Count > 0) LogList.ScrollIntoView(logRows[^1]);
+        LogView.ClearSelection(); FollowToggle.IsChecked = true; FlushLog(); LogView.ScrollToEnd();
+        ConnectionStatus.Text = "已恢复显示并跟随最新输出。";
         SavePreferences();
     }
     private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e) => ApplyLayout();
@@ -585,7 +574,8 @@ public partial class MainWindow : Window
             width = RootGrid.ActualWidth, height = RootGrid.ActualHeight, readOnly = true, numberedLogs = true,
             detailsVisible = DetailsPanel.Visibility == Visibility.Visible,
             selectedTask = selectedId, overview = ContentGrid.Visibility == Visibility.Collapsed,
-            renderedLogRows = logRows.Count,
+            renderedLogRows = LogView.LineCount, selectedCharacters = LogView.SelectedText.Length, logDocument = LogView.Diagnostics(),
+            logPhase, logDirty, parsedLogRows = selectedLog?.GetLines().Count, selectionCancelled = selection?.IsCancellationRequested,
             cardsWidth = TaskList.ActualWidth, contentVisible = ContentGrid.Visibility == Visibility.Visible,
             visibleTasks = rows.Select(r => r.Session.Id).ToArray(), hiddenTasks = hiddenTaskIds.Order(StringComparer.Ordinal).ToArray(),
             previews = Descendants<OutputPreview>(TaskList).Select(p => p.Diagnostics()).ToArray(),
@@ -607,7 +597,7 @@ public partial class MainWindow : Window
     public void SelectTask(string id) { pendingId = id; _ = Refresh(); }
     private void ClearSelection()
     {
-        selection?.Cancel(); selectedId = null; selectedLog = null; logDirty = false; logRows.Clear();
+        selection?.Cancel(); selectedId = null; selectedLog = null; logDirty = false; LogView.Clear();
         TaskList.SelectedItem = null;
         LogTitle.Text = DetailTitle.Text = "选择一个任务"; DetailStatus.Text = ""; LogSummary.Text = "选择左侧任务，查看实时输出和历史日志。";
         ActionsButton.IsEnabled = NotificationToggle.IsEnabled = false;

@@ -96,7 +96,7 @@
                         <Button Grid.Column="1" x:Name="ActionsButton" Content="操作" IsEnabled="False">
                             <Button.Flyout>
                                 <MenuFlyout>
-                                    <MenuFlyoutItem x:Name="CopyButton" Text="复制日志" Click="Copy_Click" />
+                                    <MenuFlyoutItem x:Name="CopyButton" Text="复制选区或日志" Click="Copy_Click" />
                                     <MenuFlyoutItem x:Name="ExportButton" Text="导出原始输出" Click="Export_Click" />
                                     <MenuFlyoutItem x:Name="FolderButton" Text="打开工作目录" Click="Folder_Click" />
                                     <MenuFlyoutItem Text="通知条件…" Click="NotificationConditions_Click" />
@@ -108,13 +108,7 @@
                         </Button>
                     </Grid>
                     <Border Grid.Row="2" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
-                        <ListView x:Name="LogList" ItemTemplate="{StaticResource LogLineTemplate}" SelectionMode="Single" IsItemClickEnabled="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" Padding="0" KeyDown="LogList_KeyDown">
-                            <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem">
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="VerticalContentAlignment" Value="Top" /><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="20" /><Setter Property="Margin" Value="0" />
-                                </Style>
-                            </ListView.ItemContainerStyle>
-                        </ListView>
+                        <local:SelectableLogView x:Name="LogView" />
                     </Border>
                 </Grid>
                 <Border Grid.Column="1" x:Name="DetailsPanel" Visibility="Collapsed" Margin="16,0,0,0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="16">
@@ -123,7 +117,7 @@
                             <TextBlock Text="任务详情" FontWeight="SemiBold" FontSize="16" />
                             <TextBlock x:Name="DetailTitle" Text="选择一个任务" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             <TextBlock x:Name="DetailStatus" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock Text="日志按逻辑行编号。长行自动换行，悬停高亮当前行，点击可固定选中。" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="日志按逻辑行编号，长行自动换行。支持跨行拖选、Ctrl+A 全选和 Ctrl+C 复制。选中文字时暂停显示更新，点击“最新”恢复。" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                     </ScrollViewer>
                 </Border>

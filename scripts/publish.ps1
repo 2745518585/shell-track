@@ -28,7 +28,7 @@ try {
         if (-not $CoreOnly) {
             dotnet publish src/ShellTrack.Desktop --configuration Release --runtime win-x64 --self-contained $runtimeMode --output (Join-Path $bundleRoot 'desktop') --nologo @versionArguments
             if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
-            foreach ($required in @('App.xbf', 'MainWindow.xbf', 'ShellTrack.Desktop.pri', 'assets/shelltrack.ico', 'assets/shelltrack.png')) {
+            foreach ($required in @('App.xbf', 'MainWindow.xbf', 'SelectableLogView.xbf', 'ShellTrack.Desktop.pri', 'assets/shelltrack.ico', 'assets/shelltrack.png')) {
                 if (-not (Test-Path -LiteralPath (Join-Path $bundleRoot ('desktop/' + $required)))) { throw "Desktop publish resource missing: $required" }
             }
         }

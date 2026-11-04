@@ -20,7 +20,7 @@ foreach ($tag in @('v0.0.0', 'v01.2.3', '1.2.3', 'v1.2.3-rc.1', 'v65536.0.0', 'v
 }
 $bundle = Join-Path $root 'bundle'
 New-Item -ItemType Directory -Path (Join-Path $bundle 'desktop'), (Join-Path $bundle 'packaging') | Out-Null
-foreach ($name in @('shelltrack.exe', 'shelltrack-cmd.exe', 'shelltrack-pwsh.exe', 'shelltrack-powershell.exe', 'coreclr.dll', 'desktop/ShellTrack.Desktop.exe', 'desktop/App.xbf', 'desktop/MainWindow.xbf', 'desktop/coreclr.dll', 'LICENSE', 'packaging/INSTALL.md')) {
+foreach ($name in @('shelltrack.exe', 'shelltrack-cmd.exe', 'shelltrack-pwsh.exe', 'shelltrack-powershell.exe', 'coreclr.dll', 'desktop/ShellTrack.Desktop.exe', 'desktop/App.xbf', 'desktop/MainWindow.xbf', 'desktop/SelectableLogView.xbf', 'desktop/coreclr.dll', 'LICENSE', 'packaging/INSTALL.md')) {
     Set-Content -LiteralPath (Join-Path $bundle $name) -Value 'fixture'
 }
 $assets = Join-Path $root 'assets'

@@ -18,7 +18,7 @@ $actual = @(Get-ChildItem -LiteralPath $Directory -Force)
 if ($actual.Count -ne ($expected.Count + 1) -or @($actual | Where-Object { $_.PSIsContainer -or $_.Name -cnotin ($expected + 'SHA256SUMS.txt') }).Count) { throw 'Release directory contains unexpected files.' }
 $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $Directory $expected[0]))
 try {
-    foreach ($name in @('shelltrack.exe', 'shelltrack-cmd.exe', 'shelltrack-pwsh.exe', 'shelltrack-powershell.exe', 'coreclr.dll', 'desktop/ShellTrack.Desktop.exe', 'desktop/App.xbf', 'desktop/MainWindow.xbf', 'desktop/coreclr.dll', 'LICENSE', 'packaging/INSTALL.md')) {
+    foreach ($name in @('shelltrack.exe', 'shelltrack-cmd.exe', 'shelltrack-pwsh.exe', 'shelltrack-powershell.exe', 'coreclr.dll', 'desktop/ShellTrack.Desktop.exe', 'desktop/App.xbf', 'desktop/MainWindow.xbf', 'desktop/SelectableLogView.xbf', 'desktop/coreclr.dll', 'LICENSE', 'packaging/INSTALL.md')) {
         if (-not $zip.GetEntry($name)) { throw "Portable ZIP is missing: $name" }
     }
 } finally { $zip.Dispose() }

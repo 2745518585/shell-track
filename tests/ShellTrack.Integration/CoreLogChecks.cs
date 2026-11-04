@@ -5,6 +5,22 @@ internal static class CoreLogChecks
 {
     public static void Run(Action<bool, string> check)
     {
+        var document = new LogDocument();
+        document.Update([new(100, "中文😀"), new(101, ""), new(102, "last"), new(103, "")]);
+        check(document.Text == "中文😀\r\rlast\r" && document.Starts.SequenceEqual(new[] { 0, 5, 6, 11 }),
+            "连续日志文档保留空行与真实换行，文本中不混入行号");
+        check(document.LineAt(4) == 0 && document.LineAt(5) == 1 && document.LineAt(7) == 2 && document.LineAt(11) == 3,
+            "UTF-16 文本位置正确映射到逻辑行，包含中文和 emoji");
+        check(document.SelectedText(1, 8) == "文😀\n\nla" && document.SelectedText(8, 1) == "文😀\n\nla",
+            "正反向跨行复制保留空行与正文片段，不添加行号或折行");
+        check(document.SelectedText(0, document.Text.Length + 1) == "中文😀\n\nlast\n",
+            "全选复制排除原生文档额外的末尾段落标记");
+        document.Update([new(1, "😀 old")]);
+        check(document.Update([new(1, "😁 new")]) == 0, "增量替换不会从 emoji 的半个字符对开始");
+        document.Update([new(20, "line")]);
+        check(document.Update([new(20, "line"), new(21, "next")]) == 4 && document.Text == "line\rnext", "追加日志只替换变化的尾部");
+        document.Update([]);
+        check(document.Text == "" && document.LineAt(0) == -1, "切换任务清空连续文档及行号映射");
         var log = new TextLog();
         check(log.GetLines().Count == 0 && log.FirstLineNumber == 1, "空日志不产生虚构行号");
         byte[] bytes = Encoding.UTF8.GetBytes("\x1b]0;hidden title\a中文\x1b[31m red\x1b[0m\r\n");
